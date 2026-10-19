@@ -1,0 +1,2589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>不给糖就捣蛋</title>
+<style>
+/* ==========================================================================
+   不给糖就捣蛋 · 单文件小游戏
+   结构：① 变量与重置   ② 舞台（纯黑）  ③ 幽灵与真猫
+        ④ 糖果筐（线稿 + 物理堆叠）  ⑤ 垃圾桶（线稿）
+        ⑥ 标题/通关/提示  ⑦ 关键帧  ⑧ 响应式
+   ========================================================================== */
+
+/* ---------- ① 变量与重置 ---------- */
+:root{
+  --ink:#000000;            /* 背景：纯黑 */
+  --line:#050505;           /* 线条：黑墨 */
+  --kraft:#efe3c9;          /* 藤条/牛皮纸底色（让黑线可见） */
+  --kraft-2:#d9c8a4;
+  --gold:#ffcf6b;
+  --text:#f4f0ff;
+  --ghost-w:190px;
+  --ghost-h:215px;
+  --candy-r:10px;             /* 糖果半径，物理用 */
+  --tray-w:min(260px,58vw);   /* 南瓜篮宽度 */
+  --tray-sink:calc(var(--tray-w) * -0.055); /* 负值=压向屏幕底边 */
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overflow:hidden}
+body{
+  background:#000;
+  color:var(--text);
+  font-family:"Trebuchet MS","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+/* ---------- ② 舞台：一整块黑 ---------- */
+#stage{
+  position:fixed;
+  inset:0;
+  overflow:hidden;
+  touch-action:none;
+  background:#000;
+}
+#stage.shake{animation:stage-shake .45s cubic-bezier(.36,.07,.19,.97)}
+
+/* ---------- ③ 幽灵与真猫 ---------- */
+.ghost-slot{
+  position:absolute;
+  left:50%;
+  top:40%;
+  width:var(--ghost-w);
+  height:var(--ghost-h);
+  margin-left:calc(var(--ghost-w) / -2);
+  margin-top:calc(var(--ghost-h) / -2);
+  z-index:20;
+  opacity:0;
+  transform:scale(.6) translateY(24px);
+  transition:transform .52s cubic-bezier(.34,1.42,.64,1), opacity .45s ease;
+  will-change:transform,opacity;
+}
+.ghost-slot.entered{opacity:1;transform:none}
+.ghost-slot.leave{opacity:0;transform:translateY(-130px) scale(.55) rotate(-8deg)}
+
+.ghost-float{
+  position:relative;
+  width:100%;
+  height:100%;
+  animation:float 2.8s ease-in-out infinite;
+}
+.ghost{position:absolute;inset:0;transition:opacity .45s ease}
+
+/* —— 白色床单（SVG 重绘，参考 幽灵.jpg：猫耳 + 大椭圆眼 + ω 嘴 + 胡须 + 尖角下摆） —— */
+.sheet{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  overflow:visible;
+  transform-origin:50% 0%;
+  transition:transform .58s cubic-bezier(.55,-.22,.86,.55), opacity .58s ease .06s;
+  filter:drop-shadow(0 0 22px rgba(205,195,255,.22)) drop-shadow(0 16px 22px rgba(0,0,0,.65));
+}
+.sheet .body{fill:#ffffff}
+.sheet .ink{
+  fill:none;
+  stroke:#2c2b38;
+  stroke-width:3.4;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.sheet .eye{fill:#2c2b38}
+
+/* 糖果悬停在幽灵上方时的高亮 */
+.ghost.target .sheet{
+  filter:drop-shadow(0 0 26px rgba(255,206,107,.95)) drop-shadow(0 16px 22px rgba(0,0,0,.5));
+}
+
+/* 三套表情：靠父级 class 切换 SVG 分组 */
+.sheet .g-happy,
+.sheet .g-angry{display:none}
+.ghost.happy .sheet .g-normal{display:none}
+.ghost.happy .sheet .g-happy{display:inline}
+.ghost.angry .sheet .g-normal{display:none}
+.ghost.angry .sheet .g-angry{display:inline}
+.ghost.happy .sheet .g-mouth,
+.ghost.angry .sheet .g-mouth{opacity:0}
+.ghost.happy .sheet .g-whisk{opacity:.45}
+
+/* 蝙蝠过场时把场景元素隐掉，只留蝙蝠 */
+.fx-vanish{opacity:0 !important; pointer-events:none}
+
+/* 蜘蛛抱着的那颗糖 */
+.fx-candy{
+  position:absolute;
+  left:50%;
+  bottom:0;
+  margin-left:-30px;
+  font-size:17px;
+  line-height:1;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));
+  animation:fxCandyBob 1.1s ease-in-out infinite alternate;
+}
+@keyframes fxCandyBob{
+  from{transform:translateY(0)}
+  to{transform:translateY(-3px)}
+}
+
+/* 生气图标：小猫右侧头顶 */
+.anger{
+  position:absolute;
+  right:0;
+  top:2px;
+  font-size:28px;
+  line-height:1;
+  opacity:0;
+  transform:scale(.3) rotate(-18deg);
+  transform-origin:50% 50%;
+  transition:opacity .18s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.65));
+}
+.anger.show{
+  opacity:1;
+  transform:scale(1) rotate(0deg);
+  animation:angerPulse .62s ease-in-out .38s infinite alternate;
+}
+@keyframes angerPulse{
+  from{transform:scale(1) rotate(0deg)}
+  to{transform:scale(1.16) rotate(7deg)}
+}
+
+/* 张嘴：拖动糖果时把 ω 嘴换成圆嘴，糖飞进去后闭合 */
+.sheet .g-mouth-open{display:none}
+.ghost.mouth-open .sheet .g-mouth-open{display:inline}
+.ghost.mouth-open .sheet .g-mouth{opacity:0}
+
+/* 微笑：吃到糖时把 ω 嘴换成一道笑弧 */
+.sheet .g-smile{display:none}
+.ghost.smiling .sheet .g-smile{display:inline}
+.ghost.smiling .sheet .g-mouth{opacity:0}
+
+/* —— 真猫（初始藏在床单后面） —— */
+.cat-layer{
+  position:absolute;
+  left:50%;
+  top:14px;
+  width:170px;
+  height:170px;
+  margin-left:-85px;
+  opacity:0;
+  transform:scale(.5) rotate(-6deg);
+  transition:transform .62s cubic-bezier(.34,1.62,.52,1), opacity .4s ease;
+  filter:drop-shadow(0 12px 20px rgba(0,0,0,.6));
+}
+.ghost.revealed .sheet{
+  transform:translateY(120px) rotate(-17deg) scale(.8);
+  opacity:0;
+}
+.ghost.revealed .cat-layer{
+  opacity:1;
+  transform:scale(1) rotate(0deg);
+  animation:cat-bob .9s ease-in-out .35s 3;
+}
+
+/* 复位瞬间关掉过渡，避免下一只幽灵出现时床单「倒放」 */
+.ghost.no-anim .sheet,
+.ghost.no-anim .cat-layer{
+  transition:none !important;
+}
+
+/* 头顶气泡：一颗糖果冒出来 */
+.bubble{
+  position:absolute;
+  left:50%;
+  top:-62px;
+  transform:translateX(-50%) scale(.7);
+  padding:8px 13px 10px;
+  min-width:52px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  background:#fff;
+  border-radius:20px;
+  box-shadow:0 10px 26px rgba(0,0,0,.6);
+  opacity:0;
+  transition:opacity .25s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+}
+.bubble::after{
+  content:"";
+  position:absolute;
+  left:50%;
+  bottom:-7px;
+  width:16px;height:16px;
+  margin-left:-8px;
+  background:#fff;
+  transform:rotate(45deg);
+  border-radius:3px;
+}
+.bubble.show{opacity:1;transform:translateX(-50%) scale(1)}
+/* 气泡里的糖果 */
+.bubble span{
+  display:block;
+  font-size:19px;
+  line-height:1;
+  opacity:0;
+  transform:translateY(4px) scale(.55);
+  transition:opacity .18s ease, transform .28s cubic-bezier(.34,1.56,.64,1);
+}
+.bubble span.on{opacity:1;transform:none}
+
+/* ---------- ④ 糖果篮：南瓜色万圣节南瓜灯（顶口椭圆 = 糖果窗口） ---------- */
+#tray{
+  position:absolute;
+  left:50%;
+  /* 坐到底边中间：稍微压进屏幕 1 点点 */
+  bottom:var(--tray-sink);
+  z-index:30;
+  width:var(--tray-w);
+  transform:translate(-50%,116%);
+  transition:transform .55s cubic-bezier(.34,1.32,.64,1), opacity .38s ease;
+}
+#tray.show{transform:translate(-50%,0)}
+#tray.shake{animation:tray-shake .5s cubic-bezier(.36,.07,.19,.97)}
+
+.pumpkin{position:relative;width:100%}
+.pk-back{display:block;width:100%;height:auto}
+
+.pk-handle{fill:none;stroke:#2c2b38;stroke-width:9;stroke-linecap:round}
+.pk-stem{fill:none;stroke:#2c2b38;stroke-width:10;stroke-linecap:round}
+.pk-body{fill:#f0a63c;stroke:#2c2b38;stroke-width:4.5}
+.pk-rib{fill:none;stroke:rgba(122,58,0,.3);stroke-width:2.6;stroke-linecap:round}
+.pk-face{fill:#2e1804}
+.pk-tooth{fill:#f0a63c}
+.pk-window{fill:#2a1606;stroke:#2c2b38;stroke-width:5}
+.pk-window-in{fill:rgba(255,214,140,.09)}
+
+/* 窗口尺寸探针（透明，只用来量椭圆口的位置和半径） */
+.mouth-probe{
+  position:absolute;
+  left:10%;
+  width:80%;
+  top:13.333%;
+  height:41.481%;
+  opacity:0;
+  pointer-events:none;
+}
+
+/* 糖果层：裁成这个椭圆窗口，所有糖都在窗口里 */
+.pile{
+  position:absolute;
+  left:10%;
+  width:80%;
+  top:13.333%;
+  height:41.481%;
+  overflow:hidden;
+  clip-path:ellipse(50% 50% at 50% 50%);
+  touch-action:none;
+  cursor:grab;
+}
+.pile:active{cursor:grabbing}
+
+/* 单颗糖果 */
+.sweet{
+  position:absolute;
+  left:0;top:0;
+  width:calc(var(--candy-r) * 2);
+  height:calc(var(--candy-r) * 2);
+  display:grid;
+  place-items:center;
+  transform-origin:50% 50%;
+  will-change:transform;
+  pointer-events:none;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.45));
+}
+.sweet.dragging{
+  position:fixed;
+  z-index:200;
+  filter:drop-shadow(0 12px 16px rgba(0,0,0,.75));
+}
+
+/* 棒棒糖 */
+.c-lolli .head{
+  position:relative;
+  z-index:2;
+  width:18px;height:18px;
+  border-radius:50%;
+  background:conic-gradient(from 20deg,#ff5c8a 0 25%,#fff4f8 0 50%,#ff5c8a 0 75%,#fff4f8 0);
+  box-shadow:inset 0 0 0 2px #ff9ab5, 0 2px 4px rgba(0,0,0,.45);
+}
+.c-lolli .stick{
+  position:absolute;
+  left:50%;top:12px;
+  width:3px;height:10px;
+  margin-left:-1.5px;
+  border-radius:2px;
+  background:linear-gradient(#fff8e7,#cbb894);
+  z-index:1;
+}
+/* 玉米糖 */
+.c-corn .body{
+  width:14px;height:21px;
+  clip-path:polygon(50% 0,100% 100%,0 100%);
+  background:linear-gradient(#fffdf3 0 24%,#ffc94a 24% 58%,#ff7a1a 58% 100%);
+}
+/* 巧克力 */
+.c-choco .body{
+  width:19px;height:14px;
+  border-radius:3px;
+  background:
+    linear-gradient(90deg,transparent 46%,#2f1a0e 46% 54%,transparent 54%),
+    linear-gradient(0deg,transparent 46%,#2f1a0e 46% 54%,transparent 54%),
+    linear-gradient(145deg,#8a5530,#4a2a17);
+  box-shadow:inset 0 0 0 2px #5d3820;
+}
+/* 软糖 */
+.c-gummy .body{
+  width:19px;height:16px;
+  border-radius:46% 54% 62% 38% / 54% 42% 58% 46%;
+  background:linear-gradient(145deg,#ff9ade,#b44bff);
+  box-shadow:
+    inset -2px -3px 6px rgba(90,0,120,.35),
+    inset 2px 3px 6px rgba(255,255,255,.5);
+}
+
+/* ---------- ④-2 捣蛋动画的临时元件（都挂在 #fxLayer 里） ---------- */
+
+/* 猫淡出（蝙蝠那段用） */
+.ghost.fade-away{opacity:0}
+
+/* 布袋 */
+.fx-bag{
+  position:absolute;
+  transform-origin:50% 0;
+  pointer-events:none;
+  will-change:transform,opacity;
+  filter:drop-shadow(0 14px 26px rgba(0,0,0,.65));
+}
+.fx-bag svg{display:block;width:100%;height:100%}
+.bag-body{fill:#d8b47a;stroke:#241a0e;stroke-width:6;stroke-linejoin:round}
+.bag-mouth{fill:#3a2a16;stroke:#241a0e;stroke-width:6;stroke-linejoin:round}
+.bag-line{fill:none;stroke:rgba(70,48,22,.4);stroke-width:4;stroke-linecap:round}
+.bag-tie{fill:none;stroke:#241a0e;stroke-width:10;stroke-linecap:round}
+
+/* 蝙蝠 */
+.fx-bat{
+  position:absolute;
+  pointer-events:none;
+  will-change:transform;
+}
+.fx-bat svg{display:block;width:100%;height:auto;overflow:visible}
+.fx-bat .flap{
+  transform-origin:50% 50%;
+  animation:flapWing .26s ease-in-out infinite alternate;
+}
+@keyframes flapWing{
+  from{transform:scaleY(1)}
+  to{transform:scaleY(.5)}
+}
+
+/* 蜘蛛 + 丝线 */
+.fx-spider-wrap{position:absolute;pointer-events:none}
+.fx-thread{
+  position:absolute;
+  left:50%;
+  bottom:0;
+  width:2px;
+  transform:translateX(-50%);
+  background:linear-gradient(180deg, rgba(240,236,250,0), rgba(240,236,250,.5));
+}
+.fx-spider{
+  position:absolute;
+  left:50%;
+  bottom:-16px;
+  width:30px;
+  height:30px;
+  margin-left:-15px;
+}
+.fx-spider svg{display:block;width:100%;height:100%;overflow:visible}
+
+/* 万圣节糖果文字（吃到糖时绕着小猫浮起） */
+.fx-word{
+  position:absolute;
+  pointer-events:none;
+  font-weight:800;
+  letter-spacing:.06em;
+  white-space:nowrap;
+  color:#ffcf6b;
+  text-shadow:0 0 14px rgba(255,178,70,.9), 0 2px 0 rgba(0,0,0,.75);
+  will-change:transform,opacity;
+}
+.fx-word.pink{color:#ff9ecf;text-shadow:0 0 14px rgba(255,120,190,.9), 0 2px 0 rgba(0,0,0,.75)}
+.fx-word.mint{color:#8ef0c6;text-shadow:0 0 14px rgba(90,240,190,.85), 0 2px 0 rgba(0,0,0,.75)}
+.fx-word.pop{color:#fff;text-shadow:0 0 20px rgba(255,220,150,1), 0 2px 0 rgba(0,0,0,.8)}
+
+/* 猫拿到糖：整体弹一下（只动幽灵本体，不换形象） */
+.ghost.got-candy{animation:gotCandy .5s cubic-bezier(.34,1.56,.64,1) 3}
+@keyframes gotCandy{
+  0%,100%{transform:scale(1) rotate(0)}
+  40%{transform:scale(1.09) rotate(-3deg)}
+  70%{transform:scale(.98) rotate(2deg)}
+}
+
+/* 大结局：笑眯眯地左右轻轻跳 */
+.ghost.cheer{
+  animation:cheerSway 1.15s ease-in-out infinite;
+  transform-origin:50% 88%;
+}
+@keyframes cheerSway{
+  0%{transform:translateX(0) rotate(0deg)}
+  25%{transform:translateX(-8px) translateY(-3px) rotate(-3.5deg)}
+  50%{transform:translateX(0) rotate(0deg)}
+  75%{transform:translateX(8px) translateY(-3px) rotate(3.5deg)}
+  100%{transform:translateX(0) rotate(0deg)}
+}
+
+/* ---------- ⑤ 垃圾桶：纯线稿，无文字 ---------- */
+#trash{
+  position:absolute;
+  right:5vw;
+  /* 正好坐在购物车上沿之上，不会压到车 */
+  bottom:calc(var(--tray-w) * 0.6136 + var(--tray-sink) + 12px);
+  z-index:30;
+  width:clamp(78px,10vw,116px);
+  transform:translateX(220%) rotate(10deg);
+  transition:transform .55s cubic-bezier(.34,1.32,.64,1), opacity .38s ease;
+  pointer-events:none;
+}
+#trash.show{transform:translateX(0) rotate(0)}
+#trash svg{display:block;width:100%;height:auto}
+#trash.target{transform:translateX(0) scale(1.1)}
+#trash.target svg{filter:drop-shadow(0 0 14px rgba(255,207,107,.85))}
+
+/* ---------- ⑥ 标题页 / 通关页 / 提示 ---------- */
+#titleScreen{
+  position:absolute;
+  inset:0;
+  z-index:90;
+  display:grid;
+  place-items:center;
+  text-align:center;
+  padding:24px;
+  background:#000;
+  cursor:pointer;
+  transition:opacity .65s ease, visibility .65s;
+}
+#titleScreen.fade-out{opacity:0;visibility:hidden}
+#titleScreen.hidden{display:none}
+
+.title-inner{position:relative;max-width:640px}
+.title-candies{
+  font-size:clamp(20px,4vw,30px);
+  letter-spacing:clamp(10px,3vw,26px);
+  margin-bottom:14px;
+  filter:drop-shadow(0 0 12px rgba(255,180,90,.6));
+  animation:sway 3s ease-in-out infinite;
+}
+.game-title{
+  margin:0;
+  font-size:clamp(2.1rem,8.5vw,4.2rem);
+  line-height:1.16;
+  letter-spacing:.04em;
+  color:#fff;
+  text-shadow:0 0 22px rgba(255,255,255,.35), 0 6px 0 rgba(0,0,0,.8);
+}
+.game-title em{
+  display:block;
+  font-style:normal;
+  color:var(--gold);
+  text-shadow:0 0 26px rgba(255,180,80,.55), 0 6px 0 rgba(0,0,0,.8);
+}
+.title-sub{
+  margin:18px 0 0;
+  font-size:clamp(12px,2.6vw,15px);
+  color:#8d8d96;
+  letter-spacing:.22em;
+}
+.tap-hint{
+  margin-top:34px;
+  font-size:clamp(13px,3vw,16px);
+  color:var(--gold);
+  letter-spacing:.16em;
+  animation:blink 1.6s ease-in-out infinite;
+}
+.tap-hint::after{
+  content:"";
+  display:block;
+  width:34px;height:2px;
+  margin:12px auto 0;
+  border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);
+}
+/* 音乐已开启：提示文字变亮并加一个音符 */
+.tap-hint.ready{
+  color:#fff;
+  text-shadow:0 0 16px rgba(255,207,107,.85);
+}
+.tap-hint.ready::before{
+  content:"🎵 ";
+  filter:drop-shadow(0 0 8px rgba(255,207,107,.9));
+}
+
+/* ---------- 音效开关 ---------- */
+#soundBtn{
+  position:fixed;
+  right:12px;
+  top:12px;
+  z-index:130;
+  width:34px;
+  height:34px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  font-size:15px;
+  line-height:1;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.05);
+  color:#efeaf7;
+  cursor:pointer;
+  transition:background .2s ease, transform .15s ease;
+}
+#soundBtn:hover{background:rgba(255,255,255,.14)}
+#soundBtn:active{transform:scale(.94)}
+
+/* 粒子层 */
+#fxLayer{
+  position:fixed;
+  inset:0;
+  z-index:120;
+  pointer-events:none;
+  overflow:hidden;
+}
+.particle{
+  position:absolute;
+  border-radius:50%;
+  will-change:transform,opacity;
+}
+.particle.spark{border-radius:2px}
+
+/* ---------- ⑦ 关键帧 ---------- */
+@keyframes float{
+  0%,100%{transform:translateY(-9px)}
+  50%{transform:translateY(9px)}
+}
+@keyframes sway{
+  0%,100%{transform:rotate(-3deg)}
+  50%{transform:rotate(3deg)}
+}
+@keyframes blink{
+  0%,100%{opacity:.35}
+  50%{opacity:1}
+}
+@keyframes stage-shake{
+  10%,90%{transform:translate(-2px,1px)}
+  20%,80%{transform:translate(4px,-2px)}
+  30%,50%,70%{transform:translate(-6px,2px)}
+  40%,60%{transform:translate(6px,-1px)}
+}
+@keyframes tray-shake{
+  15%{transform:translate(calc(-50% - 7px),0) rotate(-1.2deg)}
+  35%{transform:translate(calc(-50% + 8px),0) rotate(1.2deg)}
+  55%{transform:translate(calc(-50% - 5px),0) rotate(-.8deg)}
+  75%{transform:translate(calc(-50% + 4px),0) rotate(.5deg)}
+}
+@keyframes cat-bob{
+  0%,100%{transform:scale(1) rotate(0)}
+  50%{transform:scale(1.05) rotate(-2deg)}
+}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+@keyframes win-in{
+  from{opacity:0;transform:translateY(24px) scale(.9)}
+  to{opacity:1;transform:none}
+}
+.ghost.shaking .sheet{animation:ghost-shake .46s cubic-bezier(.36,.07,.19,.97)}
+@keyframes ghost-shake{
+  20%{transform:translate(-5px,0) rotate(-1.6deg)}
+  40%{transform:translate(5px,0) rotate(1.6deg)}
+  60%{transform:translate(-4px,0) rotate(-1deg)}
+  80%{transform:translate(3px,0) rotate(1deg)}
+}
+
+/* ---------- ⑧ 响应式 ---------- */
+@media (max-width:640px){
+  :root{--ghost-w:156px;--ghost-h:176px;--candy-r:9px;--tray-w:68vw}
+  .cat-layer{width:136px;height:136px;margin-left:-68px;top:10px}
+  .ghost-slot{top:36%}
+  .bubble{top:-52px;padding:8px 16px 12px}
+
+  #trash{
+    right:10px;
+    bottom:auto;
+    top:54%;
+    width:74px;
+  }
+}
+/* 矮屏幕 / 手机横屏 */
+@media (max-height:620px){
+  :root{--tray-w:min(230px,52vw)}
+  .ghost-slot{top:34%}
+  .bubble{top:-50px;padding:8px 16px 12px}
+}
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- ===== 幽灵舞台 ===== -->
+  <div class="ghost-slot" id="ghostSlot" aria-live="polite">
+    <div class="ghost-float">
+      <div class="bubble" id="bubble" aria-hidden="true"><span>🍬</span></div>
+
+      <div class="ghost" id="ghost">
+        <!-- 真猫（先藏在床单后） -->
+        <div class="cat-layer" id="catLayer"></div>
+
+        <!-- 白床单幽灵（按 幽灵.jpg 重绘：猫耳、大椭圆眼、ω 嘴、胡须、尖角下摆） -->
+        <svg class="sheet" id="sheet" viewBox="0 0 200 226" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path class="body"
+                d="M46 24 C36 30 30 48 29 72 L26 120 C24 152 24 184 28 208
+                   q14.2 20 28.4 0 q14.2 20 28.4 0 q14.2 20 28.4 0 q14.2 20 28.4 0 q14.2 20 28.4 0
+                   C172 184 172 152 170 120 L167 72 C166 48 160 30 150 24 Q100 64 46 24 Z"/>
+
+          <!-- 大眼睛 -->
+          <g class="g-normal">
+            <ellipse class="eye" cx="78" cy="104" rx="9.5" ry="13.5" transform="rotate(-8 78 104)"/>
+            <ellipse class="eye" cx="122" cy="104" rx="9.5" ry="13.5" transform="rotate(8 122 104)"/>
+          </g>
+
+          <!-- 开心：月牙眼 -->
+          <g class="g-happy">
+            <path class="ink" d="M66 106 q12 -14 24 0"/>
+            <path class="ink" d="M110 106 q12 -14 24 0"/>
+          </g>
+
+          <!-- 生气：斜眼 -->
+          <g class="g-angry">
+            <path class="ink" d="M65 98 L91 112"/>
+            <path class="ink" d="M135 98 L109 112"/>
+          </g>
+
+          <!-- ω 形小嘴 -->
+          <path class="g-mouth ink" d="M93 130 q3.5 7 7 0 q3.5 7 7 0"/>
+
+          <!-- 张嘴（拖动糖果时露出来，等糖进嘴） -->
+          <g class="g-mouth-open">
+            <ellipse cx="100" cy="133" rx="10.5" ry="9.5" fill="#2c2b38"/>
+            <ellipse cx="100" cy="138" rx="5.5" ry="3" fill="#8a6a78"/>
+          </g>
+
+          <!-- 微笑（吃到糖时用） -->
+          <g class="g-smile">
+            <path class="ink" style="stroke-width:4.5" d="M84 127 q16 17 32 0"/>
+          </g>
+
+          <!-- 两颊胡须 -->
+          <g class="g-whisk ink">
+            <path d="M50 116 L30 110"/>
+            <path d="M50 124 L27 124"/>
+            <path d="M50 132 L30 140"/>
+            <path d="M150 116 L170 110"/>
+            <path d="M150 124 L173 124"/>
+            <path d="M150 132 L170 140"/>
+          </g>
+        </svg>
+
+        <!-- 生气图标（拖到垃圾桶上时冒出来） -->
+        <div class="anger" id="angerIcon" aria-hidden="true">💢</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 糖果篮：白色南瓜灯（顶口椭圆就是糖果窗口） ===== -->
+  <div id="tray">
+    <div class="pumpkin">
+      <svg class="pk-back" viewBox="0 0 440 270" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- 提手 -->
+        <path class="pk-handle" d="M92 64 C92 0 348 0 348 64"/>
+
+        <!-- 瓜身 -->
+        <path class="pk-body"
+              d="M220 34 C120 34 26 88 26 148 C26 208 120 244 220 244
+                 C320 244 414 208 414 148 C414 88 320 34 220 34 Z"/>
+
+        <!-- 瓜棱 -->
+        <g class="pk-rib">
+          <path d="M232 100 C214 136 214 204 232 240"/>
+          <path d="M168 104 C132 144 134 202 172 238"/>
+          <path d="M296 104 C332 144 330 202 292 238"/>
+          <path d="M108 124 C80 156 82 204 118 234"/>
+          <path d="M352 124 C380 156 378 204 342 234"/>
+        </g>
+
+        <!-- 瓜蒂 -->
+        <path class="pk-stem" d="M214 62 C204 40 214 22 232 16"/>
+
+        <!-- 南瓜灯的脸：三角眼 + 咧嘴 + 牙 -->
+        <path class="pk-face" d="M136 176 L186 164 L172 208 Z"/>
+        <path class="pk-face" d="M304 176 L254 164 L268 208 Z"/>
+        <path class="pk-face" d="M126 214 Q220 260 314 214 Q220 236 126 214 Z"/>
+        <g class="pk-tooth">
+          <path d="M166 217 L176 234 L186 218 Z"/>
+          <path d="M212 220 L222 236 L232 221 Z"/>
+          <path d="M258 217 L268 234 L278 218 Z"/>
+        </g>
+
+        <!-- 顶部椭圆开口（糖果窗口）+ 内壁微光 -->
+        <ellipse class="pk-window" cx="220" cy="92" rx="176" ry="56"/>
+        <ellipse class="pk-window-in" cx="220" cy="64" rx="152" ry="26"/>
+      </svg>
+
+      <!-- 窗口尺寸探针 -->
+      <div class="mouth-probe" id="mouthProbe"></div>
+
+      <!-- 糖果层（物理世界，只在椭圆窗口内） -->
+      <div class="pile" id="pile"></div>
+    </div>
+  </div>
+
+  <!-- ===== 垃圾桶（线稿，无文字） ===== -->
+  <div id="trash" aria-hidden="true">
+    <svg viewBox="0 0 120 162" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="steelGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#8e8b83"/>
+          <stop offset="0.18" stop-color="#dcd8ce"/>
+          <stop offset="0.38" stop-color="#f4f1e8"/>
+          <stop offset="0.62" stop-color="#cdc9bf"/>
+          <stop offset="0.86" stop-color="#a9a59c"/>
+          <stop offset="1" stop-color="#7d7a73"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 影子 -->
+      <ellipse cx="60" cy="154" rx="45" ry="6" fill="#000" opacity=".85"/>
+
+      <!-- 桶身 -->
+      <path d="M18 42 L26 144 Q26 152 33 152 L87 152 Q94 152 94 144 L102 42 Z"
+            fill="url(#steelGrad)" stroke="#050505" stroke-width="3.5" stroke-linejoin="round"/>
+
+      <!-- 桶口内壁 -->
+      <ellipse cx="60" cy="42" rx="42" ry="11" fill="#151515" stroke="#050505" stroke-width="3.5"/>
+
+      <!-- 桶口外沿高光 -->
+      <ellipse cx="60" cy="44" rx="41" ry="9.5" fill="none" stroke="#fff" stroke-width="1.2" opacity=".22"/>
+
+      <!-- 桶身棱线 -->
+      <path d="M40 47 L46 146 M60 45 L60 150 M80 47 L74 146"
+            stroke="#050505" stroke-width="1.8" opacity=".55"/>
+
+      <!-- 两道箍 -->
+      <path d="M21 76 Q60 87 99 76" fill="none" stroke="#050505" stroke-width="2.6"/>
+      <path d="M24 116 Q60 127 96 116" fill="none" stroke="#050505" stroke-width="2.6"/>
+
+      <!-- 侧面高光 -->
+      <path d="M34 54 L39 140" stroke="#fff" stroke-width="2.4" opacity=".3" stroke-linecap="round"/>
+    </svg>
+  </div>
+
+  <!-- ===== 特效层 ===== -->
+  <div id="fxLayer" aria-hidden="true"></div>
+  <button id="soundBtn" type="button" aria-label="开关音效" title="开关音效">🔊</button>
+
+  <!-- ===== 标题页 ===== -->
+  <div id="titleScreen">
+    <div class="title-inner">
+      <div class="title-candies" aria-hidden="true">🍬 🍭 🎃 🍫</div>
+      <h1 class="game-title">不给糖<em>就捣蛋</em></h1>
+      <p class="title-sub">TRICK OR TREAT</p>
+      <div class="tap-hint" id="tapHint">点击任意处 · 开启音乐</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ==========================================================================
+   不给糖就捣蛋 —— 逻辑部分
+   数据 → 状态机 → 渲染 → 物理 → 拖拽 → 流程 → 特效 → 启动
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  /* ====================== 1. 数据 ====================== */
+
+  // 只有一种猫：橘猫（黑底上最显眼，也和南瓜同色系）
+  // mood 只有两种：happy（揭晓/吃到糖）、angry（被拒绝）
+  const CAT = {
+    id: 'cat', name: '小猫', patchType: 'stripes',
+    base: '#f7a95c', patch: '#c9661b',
+    eye: '#f5c451', outline: '#c06f22', mouth: '#8a4a12'
+  };
+
+  // 布袋
+  const BAG_SVG = `
+    <svg viewBox="0 0 200 230" xmlns="http://www.w3.org/2000/svg">
+      <path class="bag-body"
+            d="M100 12 C72 12 50 34 44 72 C38 112 32 156 36 190
+               C39 210 68 220 100 220 C132 220 161 210 164 190
+               C168 156 162 112 156 72 C150 34 128 12 100 12 Z"/>
+      <path class="bag-mouth" d="M36 190 C64 214 136 214 164 190 C136 200 64 200 36 190 Z"/>
+      <path class="bag-tie" d="M68 18 L132 18"/>
+      <g class="bag-line">
+        <path d="M66 62 C76 96 74 140 68 178"/>
+        <path d="M134 62 C124 96 126 140 132 178"/>
+        <path d="M100 40 C104 90 102 140 104 180"/>
+      </g>
+    </svg>`;
+
+  // 卡通蝙蝠（白身黑边，黑底上才看得见）
+  const BAT_SVG = `
+    <svg viewBox="0 0 120 54" xmlns="http://www.w3.org/2000/svg">
+      <g class="flap">
+        <path d="M60 22 C48 6 26 2 8 10 C18 16 20 26 14 38 C28 32 46 30 60 32
+                 C74 30 92 32 106 38 C100 26 102 16 112 10 C94 2 72 6 60 22 Z"
+              fill="#efeaf7" stroke="#17131f" stroke-width="3.5" stroke-linejoin="round"/>
+        <path d="M52 18 L56 8 L62 18" fill="#efeaf7" stroke="#17131f" stroke-width="3.5" stroke-linejoin="round"/>
+        <path d="M58 18 L64 8 L68 18" fill="#efeaf7" stroke="#17131f" stroke-width="3.5" stroke-linejoin="round"/>
+        <circle cx="54" cy="24" r="2" fill="#17131f"/>
+        <circle cx="66" cy="24" r="2" fill="#17131f"/>
+      </g>
+    </svg>`;
+
+  // 吊着丝线的小蜘蛛
+  const SPIDER_SVG = `
+    <svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="#efeaf7" stroke-width="2.2" fill="none" stroke-linecap="round">
+        <path d="M20 22 C12 18 8 12 6 5"/>
+        <path d="M20 24 C10 24 6 22 2 17"/>
+        <path d="M20 27 C10 30 8 35 6 39"/>
+        <path d="M20 29 C14 33 12 37 12 40"/>
+        <path d="M24 22 C32 18 36 12 38 5"/>
+        <path d="M24 24 C34 24 38 22 42 17"/>
+        <path d="M24 27 C34 30 36 35 38 39"/>
+        <path d="M24 29 C30 33 32 37 32 40"/>
+      </g>
+      <circle cx="22" cy="24" r="7.5" fill="#2a2438" stroke="#efeaf7" stroke-width="2.2"/>
+      <circle cx="19" cy="22" r="1.7" fill="#efeaf7"/>
+      <circle cx="25" cy="22" r="1.7" fill="#efeaf7"/>
+    </svg>`;
+
+  // 三种糖果（视觉不同，效果一致）
+  const CANDIES = [
+    { id: 'lolli', name: '棒棒糖' },
+    { id: 'corn',  name: '玉米糖' },
+    { id: 'gummy', name: '软糖' }
+  ];
+
+  // 糖果内部结构（每种一个 span 组合）
+  const SHAPE_HTML = {
+    lolli: '<span class="head"></span><span class="stick"></span>',
+    corn:  '<span class="body"></span>',
+    choco: '<span class="body"></span>',
+    gummy: '<span class="body"></span>'
+  };
+
+  const PHASE = {
+    TITLE: 'TITLE',
+    START: 'START',
+    GHOST_APPEAR: 'GHOST_APPEAR',
+    GHOST_SHAKE: 'GHOST_SHAKE',
+    REQUEST: 'REQUEST',
+    WAIT_ACTION: 'WAIT_ACTION',
+    SUCCESS: 'SUCCESS',
+    REVEAL: 'REVEAL',
+    TRICK: 'TRICK',
+    ROUND_END: 'ROUND_END',
+    WIN: 'WIN',
+    FREE: 'FREE'
+  };
+
+  const TIME = {
+    appear: 520,
+    shake: 460,
+    dotGap: 220,
+    fly: 420,
+    happyBeat: 220,
+    reveal: 2700,     // 微笑 + 文字停留时长
+    result: 800,
+    roundGap: 1000,
+    exit: 520,
+    switchRound: 300
+  };
+
+  // 物理参数：想调手感集中改这里
+  const PHYS = {
+    gravity: 1500,     // 重力加速度 px/s²
+    wallBounce: 0.32,  // 撞墙反弹
+    floorBounce: 0.26, // 落地反弹
+    floorFriction: 0.86,
+    restitution: 0.22, // 糖豆之间
+    iterations: 3,     // 每帧解算迭代次数
+    sleepVy: 34,       // 小于这个速度就算落地静止
+    sleepVx: 6
+  };
+
+  /* ====================== 2. 状态 ====================== */
+  const state = {
+    phase: PHASE.TITLE,
+    treats: 0,        // 成功讨到的次数
+    given: new Set(), // 已经喂过的糖果种类（三种喂齐就通关）
+    round: 0,
+    won: false,
+    audioReady: false // 是否已用第一次点击解锁音频
+  };
+
+  let flowToken = 0;
+  let drag = null;
+  let lastTrick = -1;   // 上一次的捣蛋动画，避免连续重复
+
+  /* ====================== 3. DOM ====================== */
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage');
+  const ghostSlot = $('ghostSlot');
+  const ghost = $('ghost');
+  const sheet = $('sheet');
+  const catLayer = $('catLayer');
+  const bubble = $('bubble');
+  const angerIcon = $('angerIcon');
+  const tray = $('tray');
+  const pile = $('pile');
+  const mouthProbe = $('mouthProbe');
+  const trash = $('trash');
+  const fxLayer = $('fxLayer');
+  const titleScreen = $('titleScreen');
+  const tapHint = $('tapHint');
+  const soundBtn = $('soundBtn');
+
+  /* ====================== 4. 小工具 ====================== */
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  function setPhase(p) {
+    state.phase = p;
+    stage.dataset.phase = p;
+  }
+
+  // 只有 WAIT_ACTION 且没有正在拖拽时才允许拿起糖果
+  const canDrag = () => state.phase === PHASE.WAIT_ACTION && !drag;
+
+  // 生气图标开关（同时把床单换成生气脸，和捣蛋动画里的形象一致）
+  function setAngry(on) {
+    ghost.classList.toggle('angry', on);
+    angerIcon.classList.toggle('show', on);
+  }
+
+  /* ====================== 5. 捣蛋动画表 ====================== */
+  // 四种动画随机抽，不会连着重复同一种
+  const TRICKS = [
+    { id: 'bag',    run: trickBag },
+    { id: 'bats',   run: trickBats },
+    { id: 'spider', run: trickSpider },
+    { id: 'shake',  run: trickShake }
+  ];
+
+  function pickTrick() {
+    if (TRICKS.length === 1) return TRICKS[0];
+    let i = Math.floor(Math.random() * TRICKS.length);
+    while (i === lastTrick) i = Math.floor(Math.random() * TRICKS.length);
+    lastTrick = i;
+    return TRICKS[i];
+  }
+
+  /* ====================== 6. 真猫 SVG（当前不使用） ====================== */
+  // 现在小猫只有"床单幽灵"这一种形象，不再脱床单露真猫，
+  // 所以下面是死代码，留着只是以后想加"露出真猫"时的素材。
+  // mood: 'happy' | 'angry' | 'open'（张嘴） | 'smile'（微笑）
+  function catSVG(cat, mood) {
+    const base = cat.base;
+    const outline = cat.outline;
+    const eyeColor = cat.eye;
+    const angry = mood === 'angry';
+    const eating = mood === 'open';     // 张大嘴接糖
+    const smiling = mood === 'smile';   // 吃完抿嘴笑
+    const closedEyes = eating || smiling;
+    const headClip = 'headClip-' + cat.id + '-' + mood;
+    let patches = '';
+
+    if (cat.patchType === 'stripes') {
+      patches = `
+        <g stroke="${cat.patch}" stroke-width="7" stroke-linecap="round" fill="none" opacity=".85">
+          <path d="M86 44 q6 14 1 22" />
+          <path d="M100 40 q2 16 0 24" />
+          <path d="M114 44 q-6 14 -1 22" />
+          <path d="M42 96 q10 4 14 12" />
+          <path d="M158 96 q-10 4 -14 12" />
+        </g>`;
+    } else if (cat.patchType === 'blobs') {
+      patches = `
+        <ellipse cx="66" cy="64" rx="36" ry="26" fill="${cat.patch}" transform="rotate(-16 66 64)" />
+        <ellipse cx="146" cy="128" rx="26" ry="20" fill="${cat.patch}" transform="rotate(18 146 128)" />
+        <ellipse cx="128" cy="46" rx="18" ry="12" fill="${cat.patch}" transform="rotate(-24 128 46)" />`;
+    } else if (cat.patchType === 'calico') {
+      patches = `
+        <ellipse cx="62" cy="60" rx="30" ry="22" fill="${cat.patch}" transform="rotate(-18 62 60)" />
+        <ellipse cx="140" cy="62" rx="26" ry="20" fill="${cat.patch2}" transform="rotate(20 140 62)" />
+        <ellipse cx="74" cy="132" rx="20" ry="14" fill="${cat.patch2}" transform="rotate(12 74 132)" />`;
+    } else {
+      patches = `<ellipse cx="66" cy="58" rx="22" ry="14" fill="#3f3e4f" opacity=".8" />`;
+    }
+
+    return `
+    <svg viewBox="0 0 200 180" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="${headClip}">
+          <ellipse cx="100" cy="100" rx="66" ry="58" />
+        </clipPath>
+      </defs>
+
+      <g stroke="${outline}" stroke-width="3" stroke-linejoin="round">
+        <polygon points="46,56 36,8 92,32" fill="${base}" />
+        <polygon points="154,56 164,8 108,32" fill="${base}" />
+      </g>
+      <polygon points="52,50 46,20 82,34" fill="#f5a4b8" opacity=".9" />
+      <polygon points="148,50 154,20 118,34" fill="#f5a4b8" opacity=".9" />
+
+      <ellipse cx="100" cy="100" rx="66" ry="58" fill="${base}" stroke="${outline}" stroke-width="3" />
+      <g clip-path="url(#${headClip})">${patches}</g>
+      <ellipse cx="100" cy="100" rx="66" ry="58" fill="none" stroke="${outline}" stroke-width="3" />
+
+      <ellipse cx="54" cy="118" rx="11" ry="6.5" fill="#ff9ab5" opacity=".45" />
+      <ellipse cx="146" cy="118" rx="11" ry="6.5" fill="#ff9ab5" opacity=".45" />
+
+      ${closedEyes ? `
+      <g stroke="#3a2410" stroke-width="6" stroke-linecap="round" fill="none">
+        <path d="M62 104 q14 -17 28 0" />
+        <path d="M110 104 q14 -17 28 0" />
+      </g>` : `
+      <g>
+        <ellipse cx="76" cy="98" rx="15" ry="17" fill="#ffffff" />
+        <ellipse cx="76" cy="100" rx="10" ry="12" fill="${eyeColor}" />
+        <ellipse cx="76" cy="100" rx="4.6" ry="9" fill="#17131f" />
+        <circle cx="72" cy="94" r="3.4" fill="#ffffff" />
+
+        <ellipse cx="124" cy="98" rx="15" ry="17" fill="#ffffff" />
+        <ellipse cx="124" cy="100" rx="10" ry="12" fill="${eyeColor}" />
+        <ellipse cx="124" cy="100" rx="4.6" ry="9" fill="#17131f" />
+        <circle cx="120" cy="94" r="3.4" fill="#ffffff" />
+      </g>`}
+
+      ${angry ? `
+      <g stroke="#3a2410" stroke-width="7" stroke-linecap="round">
+        <path d="M58 84 L98 97" />
+        <path d="M142 84 L102 97" />
+      </g>` : ''}
+
+      <path d="M93 114 h14 l-7 8 z" fill="#f08aa6" />
+      ${eating ? `
+      <ellipse cx="100" cy="134" rx="24" ry="17" fill="#4a1d10"
+               stroke="${cat.mouth}" stroke-width="3" />
+      <ellipse cx="100" cy="143" rx="12" ry="6" fill="#e8697f" />` : smiling ? `
+      <path d="M74 126 q26 24 52 0" stroke="${cat.mouth}" stroke-width="4.5"
+            fill="none" stroke-linecap="round" />` : angry ? `
+      <path d="M84 137 q16 -14 32 0" stroke="${cat.mouth}" stroke-width="3.4"
+            fill="none" stroke-linecap="round" opacity=".9" />` : `
+      <path d="M100 122 q-8 9 -16 3 M100 122 q8 9 16 3"
+            stroke="${cat.mouth}" stroke-width="2.6" fill="none"
+            stroke-linecap="round" opacity=".85" />`}
+      <g stroke="${cat.mouth}" stroke-width="2" stroke-linecap="round" opacity=".55">
+        <path d="M40 106 l-22 -6 M40 114 l-24 2" />
+        <path d="M160 106 l22 -6 M160 114 l24 2" />
+      </g>
+    </svg>`;
+  }
+
+  /* ====================== 7. 幽灵渲染 ====================== */
+  // 换表情/呼吸状态：只操作 .ghost 上的 class，床单自己会变
+  function renderGhost() {
+    // 关掉过渡，让上一轮残留的床单状态瞬间归位
+    ghost.classList.add('no-anim');
+    ghost.classList.remove('happy', 'angry', 'smiling', 'got-candy', 'fade-away', 'mouth-open', 'cheer');
+    angerIcon.classList.remove('show');
+    void ghost.offsetWidth;
+    ghost.classList.remove('no-anim');
+
+    bubble.classList.remove('show');
+    [...bubble.children].forEach((d) => d.classList.remove('on'));
+  }
+  /* ====================== 8. 糖果物理 ====================== */
+  // 糖果是圆形刚体：重力 + 与筐壁/彼此的碰撞，越界就修正。
+  // 位置坐标是相对 .pile 的左上角。
+
+  const sweets = [];        // 物理世界里的糖果
+  let bounds = { w: 400, h: 100, cx: 200, cy: 70, rx: 200, ry: 25 };
+  let targetCount = 20;     // 筐里应该堆多少颗（随宽度自适应）
+  let rafId = 0;
+  let lastT = 0;
+
+  const candyRadius = () => parseFloat(getComputedStyle(document.documentElement)
+    .getPropertyValue('--candy-r')) || 11;
+
+  // 可用空间：就是南瓜口那个椭圆窗口（用探针量）
+  // 糖心被限制在内缩一个半径的椭圆内 —— 整颗糖都落在窗口里
+  function refreshBounds() {
+    const pr = pile.getBoundingClientRect();
+    const mr = mouthProbe.getBoundingClientRect();
+    const r = candyRadius();
+    bounds = {
+      w: Math.max(60, pr.width),
+      h: Math.max(r * 3, pr.height),
+      cx: (mr.left - pr.left) + mr.width / 2,
+      cy: (mr.top - pr.top) + mr.height / 2,
+      rx: mr.width / 2,
+      ry: mr.height / 2
+    };
+    // 按窗口内实际可放糖的面积估算数量（约 72% 填充率，能装满又不至于互相挤）
+    const spaceX = Math.max(1, bounds.rx - r);
+    const spaceY = Math.max(1, bounds.ry - r);
+    const fit = (spaceX * spaceY * 0.72) / (r * r);
+    targetCount = Math.min(30, Math.max(6, Math.round(fit)));
+  }
+
+  function makeSweet(type) {
+    const el = document.createElement('div');
+    el.className = 'sweet c-' + type;
+    el.innerHTML = SHAPE_HTML[type];
+    pile.appendChild(el);
+    return el;
+  }
+
+  // 加一颗糖进物理世界（x/y 是中心点，相对 pile；超出椭圆会被贴回边界）
+  function addSweet(type, x, y, vx, vy) {
+    const r = candyRadius();
+    const ax = Math.max(6, bounds.rx - r);
+    const ay = Math.max(6, bounds.ry - r);
+    const nx = (x - bounds.cx) / ax;
+    const ny = (y - bounds.cy) / ay;
+    const d = Math.hypot(nx, ny);
+    if (d > 1) {
+      x = bounds.cx + (nx / d) * ax;
+      y = bounds.cy + (ny / d) * ay;
+    }
+
+    const s = {
+      el: makeSweet(type),
+      type,
+      x,
+      y,
+      vx: vx || 0,
+      vy: vy || 0,
+      r,
+      angle: rand(-0.5, 0.5),
+      spin: rand(-3, 3)
+    };
+    sweets.push(s);
+    paint(s);
+    return s;
+  }
+
+  // 开局铺满窗口：按六边形网格在椭圆里排布，保证不重叠且铺得密
+  function fillPile() {
+    if (sweets.length) return;
+    refreshBounds();
+    const B = bounds;
+    const r = candyRadius();
+    const ax = Math.max(6, B.rx - r);
+    const ay = Math.max(6, B.ry - r);
+
+    const stepX = r * 2.06;
+    const stepY = r * 1.86;
+    const slots = [];
+    let row = 0;
+
+    for (let y = B.cy - ay; y <= B.cy + ay; y += stepY, row++) {
+      const offset = row % 2 ? stepX / 2 : 0;
+      for (let x = B.cx - ax + offset; x <= B.cx + ax; x += stepX) {
+        const nx = (x - B.cx) / ax;
+        const ny = (y - B.cy) / ay;
+        if (nx * nx + ny * ny <= 0.92) slots.push({ x, y });
+      }
+    }
+
+    // 打乱，避免每局摆得一模一样
+    for (let i = slots.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [slots[i], slots[j]] = [slots[j], slots[i]];
+    }
+
+    const n = Math.min(targetCount, slots.length);
+    for (let i = 0; i < n; i++) {
+      addSweet(pick(CANDIES).id, slots[i].x, slots[i].y, 0, 0);
+    }
+    jolt(0.25);   // 开箱时轻轻晃一下
+  }
+
+  // 吃掉一颗后补一颗：直接落在窗口上半部，再滚下去
+  function refillOne() {
+    if (sweets.length >= targetCount) return;
+    const B = bounds;
+    const r = candyRadius();
+    addSweet(
+      pick(CANDIES).id,
+      rand(B.cx - (B.rx - r) * 0.7, B.cx + (B.rx - r) * 0.7),
+      B.cy - (B.ry - r) * 0.6,
+      rand(-20, 20),
+      40
+    );
+  }
+
+  // 清空篮子（捣蛋动画把糖拿走后用）
+  function clearPile() {
+    sweets.length = 0;
+    pile.innerHTML = '';
+  }
+
+  // 下一轮开始前检查：糖太少就补满（有些捣蛋动画会把糖拿走）
+  function ensurePile() {
+    refreshBounds();
+    const need = Math.max(4, Math.round(targetCount * 0.55));
+    if (sweets.length >= need) return;
+    clearPile();
+    fillPile();
+  }
+
+  // 把糖果的位置写进 DOM
+  function paint(s) {
+    s.el.style.transform =
+      `translate(${(s.x - s.r).toFixed(2)}px, ${(s.y - s.r).toFixed(2)}px) rotate(${s.angle.toFixed(3)}rad)`;
+  }
+
+  function stepPhysics(dt) {
+    const B = bounds;
+
+    // ① 积分
+    for (let i = 0; i < sweets.length; i++) {
+      const s = sweets[i];
+      s.vy += PHYS.gravity * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.angle += s.spin * dt;
+      s.spin *= 0.985;
+    }
+
+    // ② 约束解算：多次迭代让堆叠稳定
+    for (let it = 0; it < PHYS.iterations; it++) {
+      for (let i = 0; i < sweets.length; i++) {
+        const s = sweets[i];
+
+        // 椭圆窗口边界：所有糖都必须待在南瓜口这个椭圆里
+        // （糖心被限制在内缩一个半径的椭圆内，所以整颗糖都在窗口内）
+        const ax = Math.max(6, B.rx - s.r);
+        const ay = Math.max(6, B.ry - s.r);
+        const nx = (s.x - B.cx) / ax;
+        const ny = (s.y - B.cy) / ay;
+        const dd = Math.hypot(nx, ny);
+
+        if (dd > 1) {
+          // 拉回椭圆边界
+          s.x = B.cx + (nx / dd) * ax;
+          s.y = B.cy + (ny / dd) * ay;
+
+          // 沿椭圆法线反射速度
+          const nX = nx / ax;
+          const nY = ny / ay;
+          const nl = Math.hypot(nX, nY) || 1;
+          const uX = nX / nl;
+          const uY = nY / nl;
+          const vn = s.vx * uX + s.vy * uY;
+          if (vn > 0) {
+            s.vx -= (1 + PHYS.wallBounce) * vn * uX;
+            s.vy -= (1 + PHYS.wallBounce) * vn * uY;
+          }
+
+          // 贴着下半缘时加摩擦、带自转，让糖能滚着停稳
+          if (uY > 0.55) {
+            s.vx *= PHYS.floorFriction;
+            if (Math.abs(s.vy) < PHYS.sleepVy) s.vy = 0;
+            s.spin = s.vx / s.r;
+          }
+        }
+
+        // 糖豆两两碰撞
+        for (let j = i + 1; j < sweets.length; j++) {
+          const b = sweets[j];
+          const dx = b.x - s.x;
+          const dy = b.y - s.y;
+          const rr = s.r + b.r;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= rr * rr || d2 === 0) continue;
+
+          const d = Math.sqrt(d2);
+          const nx = dx / d;
+          const ny = dy / d;
+          const overlap = (rr - d) * 0.5;
+
+          // 位置分离（各让一半）
+          s.x -= nx * overlap; s.y -= ny * overlap;
+          b.x += nx * overlap; b.y += ny * overlap;
+
+          // 法向冲量
+          const rel = (b.vx - s.vx) * nx + (b.vy - s.vy) * ny;
+          if (rel < 0) {
+            const imp = -rel * (1 + PHYS.restitution) * 0.5;
+            s.vx -= nx * imp; s.vy -= ny * imp;
+            b.vx += nx * imp; b.vy += ny * imp;
+            s.spin += (nx * imp) * 0.02;
+            b.spin -= (nx * imp) * 0.02;
+          }
+        }
+      }
+    }
+
+    // ③ 静止判定 + 写回 DOM
+    for (let i = 0; i < sweets.length; i++) {
+      const s = sweets[i];
+      if (Math.abs(s.vx) < PHYS.sleepVx) s.vx = 0;
+      if (Math.abs(s.vy) < 1) s.vy = 0;
+      paint(s);
+    }
+  }
+
+  function loop(t) {
+    rafId = requestAnimationFrame(loop);
+    if (!lastT) lastT = t;
+    let dt = (t - lastT) / 1000;
+    lastT = t;
+    if (dt > 1 / 30) dt = 1 / 30;   // 掉帧时不让物理爆炸
+    stepPhysics(dt);
+  }
+
+  // 晃动糖果篮 = 给每颗糖一个随机冲量
+  function jolt(power) {
+    for (const s of sweets) {
+      s.vx += rand(-1, 1) * 260 * power;
+      s.vy -= rand(90, 300) * power;
+      s.spin += rand(-6, 6) * power;
+    }
+  }
+
+  window.addEventListener('resize', () => {
+    refreshBounds();
+    const r = candyRadius();
+    const B = bounds;
+    const ax = Math.max(6, B.rx - r);
+    const ay = Math.max(6, B.ry - r);
+    for (const s of sweets) {
+      s.r = r;
+      const nx = (s.x - B.cx) / ax;
+      const ny = (s.y - B.cy) / ay;
+      const d = Math.hypot(nx, ny);
+      if (d > 1) {
+        s.x = B.cx + (nx / d) * ax;
+        s.y = B.cy + (ny / d) * ay;
+      }
+      paint(s);
+    }
+  });
+
+  /* ====================== 9. 从筐里拿起糖果 ====================== */
+
+  function onPileDown(e) {
+    if (!canDrag()) return;
+
+    const pr = pile.getBoundingClientRect();
+    const px = e.clientX - pr.left;
+    const py = e.clientY - pr.top;
+
+    // 找指针下最近的一颗（在糖的判定半径内）
+    let target = null;
+    let best = Infinity;
+    for (const s of sweets) {
+      const d = Math.hypot(s.x - px, s.y - py);
+      if (d < s.r + 14 && d < best) { best = d; target = s; }
+    }
+    if (!target) return;
+
+    e.preventDefault();
+
+    // 从物理世界摘出这颗糖
+    const idx = sweets.indexOf(target);
+    if (idx > -1) sweets.splice(idx, 1);
+
+    const r = candyRadius();
+    const startLeft = pr.left + target.x - r;
+    const startTop = pr.top + target.y - r;
+
+    const el = target.el;
+    el.classList.add('dragging');
+    el.style.left = startLeft + 'px';
+    el.style.top = startTop + 'px';
+    el.style.transform = 'scale(1.16) rotate(-8deg)';
+    document.body.appendChild(el);
+
+    drag = {
+      el,
+      type: target.type,
+      home: { x: target.x, y: target.y },
+      offX: e.clientX - startLeft,
+      offY: e.clientY - startTop
+    };
+
+    // 拿起糖果 → 幽灵张嘴等着，头顶气泡收起
+    ghost.classList.add('mouth-open');
+    bubble.classList.remove('show');
+
+    window.addEventListener('pointermove', onDragMove, { passive: false });
+    window.addEventListener('pointerup', onDragUp);
+    window.addEventListener('pointercancel', onDragUp);
+  }
+
+  function onDragMove(e) {
+    if (!drag) return;
+    e.preventDefault();
+    drag.el.style.left = (e.clientX - drag.offX) + 'px';
+    drag.el.style.top = (e.clientY - drag.offY) + 'px';
+
+    const hit = hitTest(e.clientX, e.clientY);
+    ghost.classList.toggle('target', hit === 'ghost');
+    trash.classList.toggle('target', hit === 'trash');
+
+    // 拖到垃圾桶上：小猫当场翻脸 + 头顶冒 💢（和捣蛋动画里的形象一致）
+    // 一离开垃圾桶就切回张嘴等糖的样子
+    const atTrash = hit === 'trash';
+    setAngry(atTrash);
+    ghost.classList.toggle('mouth-open', !atTrash);
+  }
+
+  function onDragUp(e) {
+    if (!drag) return;
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragUp);
+    window.removeEventListener('pointercancel', onDragUp);
+
+    const d = drag;
+    drag = null;
+    ghost.classList.remove('target');
+    trash.classList.remove('target');
+
+    const hit = hitTest(e.clientX, e.clientY);
+
+    if (hit === 'ghost') {
+      // 立刻离开 WAIT_ACTION：本回合不再接受第二次拖拽
+      setPhase(PHASE.SUCCESS);
+      setAngry(false);
+      // 糖飞进嘴里（不是飞到肚子中间）
+      flyTo(d, getGhostMouth(), () => doSuccess(d.type));
+    } else if (hit === 'trash') {
+      setPhase(PHASE.TRICK);
+      ghost.classList.remove('mouth-open');
+      // 保持生气形象，一直带到捣蛋动画里
+      setAngry(true);
+      sfxAngry();          // 丢进垃圾桶：小猫"哼"一声
+      const t = trash.getBoundingClientRect();
+      flyTo(d, { x: t.left + t.width / 2, y: t.top + t.height * 0.5 }, () => doTrick());
+    } else {
+      // 空白处：闭嘴、收起生气，糖回弹，气泡重新出现（还在等糖）
+      ghost.classList.remove('mouth-open');
+      setAngry(false);
+      bubble.classList.add('show');
+      returnToPile(d);
+    }
+  }
+
+  // 落点判定：幽灵圆形热区（半径 ≥ 80px），垃圾桶外扩 40px
+  function hitTest(x, y) {
+    if (state.phase !== PHASE.WAIT_ACTION) return null;
+
+    const g = sheet.getBoundingClientRect();
+    const cx = g.left + g.width / 2;
+    const cy = g.top + g.height / 2;
+    const radius = Math.max(80, Math.max(g.width, g.height) / 2 + 16);
+    if (Math.hypot(x - cx, y - cy) <= radius) return 'ghost';
+
+    const t = trash.getBoundingClientRect();
+    const pad = 40;
+    if (x >= t.left - pad && x <= t.right + pad &&
+        y >= t.top - pad && y <= t.bottom + pad) return 'trash';
+
+    return null;
+  }
+
+  function getGhostCenter() {
+    // 用外层容器而不是床单：床单脱落后会被 transform 挪走，容器始终不动
+    const r = ghost.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  // 嘴巴的位置（床单 SVG 里嘴在 100,133 / 200×226 处）
+  function getGhostMouth() {
+    const r = sheet.getBoundingClientRect();
+    return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.588 };
+  }
+
+  // 糖果飞向目标，结束后元素销毁
+  function flyTo(d, target, done) {
+    const c = d.el.getBoundingClientRect();
+    const dx = target.x - (c.left + c.width / 2);
+    const dy = target.y - (c.top + c.height / 2);
+    const anim = d.el.animate(
+      [
+        { transform: 'scale(1.16) rotate(-8deg)', opacity: 1 },
+        { transform: `translate(${dx}px, ${dy}px) scale(.45) rotate(200deg)`, opacity: .1 }
+      ],
+      { duration: TIME.fly, easing: 'cubic-bezier(.45,-0.2,.9,.6)', fill: 'forwards' }
+    );
+    anim.onfinish = () => {
+      d.el.remove();
+      refillOne();
+      if (typeof done === 'function') done();
+    };
+  }
+
+  // 松手在空白处：回弹回原位置，重新落回糖果堆
+  function returnToPile(d) {
+    const pr = pile.getBoundingClientRect();
+    const r = candyRadius();
+    const tx = pr.left + d.home.x - r;
+    const ty = pr.top + d.home.y - r;
+    const c = d.el.getBoundingClientRect();
+    const dx = tx - c.left;
+    const dy = ty - c.top;
+
+    const anim = d.el.animate(
+      [
+        { transform: 'scale(1.16) rotate(-8deg)' },
+        { transform: `translate(${dx}px, ${dy}px) scale(1) rotate(0deg)` }
+      ],
+      { duration: 300, easing: 'cubic-bezier(.34,1.56,.64,1)' }
+    );
+    anim.onfinish = () => {
+      d.el.classList.remove('dragging');
+      d.el.style.left = '';
+      d.el.style.top = '';
+      d.el.style.transform = '';
+      pile.appendChild(d.el);
+      // 放回物理世界，让它自己掉进堆里
+      sweets.push({
+        el: d.el,
+        type: d.type,
+        x: d.home.x,
+        y: d.home.y,
+        vx: 0,
+        vy: 60,
+        r: candyRadius(),
+        angle: 0,
+        spin: rand(-3, 3)
+      });
+    };
+  }
+
+  /* ====================== 10. 主流程 ====================== */
+
+  async function nextRound() {
+    const token = ++flowToken;
+    state.round++;
+    clearFx();          // 清掉上一轮/结局遗留的临时元素
+
+    // GHOST_APPEAR
+    setPhase(PHASE.GHOST_APPEAR);
+    renderGhost();
+    ghostSlot.style.visibility = 'visible';
+    ghostSlot.classList.remove('entered', 'leave');
+    void ghostSlot.offsetWidth;
+    ghostSlot.classList.add('entered');
+
+    // 糖果篮第一轮从下方滑入，滑到一半时糖果撒进去；之后常驻
+    if (state.round === 1) {
+      refreshBounds();
+      tray.classList.add('show');
+      trash.classList.add('show');
+      setTimeout(fillPile, 280);
+    } else {
+      ensurePile();      // 上一轮的捣蛋可能把糖拿走了，这里补满
+    }
+    await wait(TIME.appear);
+    if (token !== flowToken) return;
+
+    // GHOST_SHAKE
+    setPhase(PHASE.GHOST_SHAKE);
+    ghost.classList.add('shaking');
+    await wait(TIME.shake);
+    if (token !== flowToken) return;
+    ghost.classList.remove('shaking');
+
+    // REQUEST：「…」逐点出现
+    setPhase(PHASE.REQUEST);
+    bubble.classList.add('show');
+    for (const d of [...bubble.children]) {
+      d.classList.add('on');
+      await wait(TIME.dotGap);
+      if (token !== flowToken) return;
+    }
+
+    // WAIT_ACTION
+    setPhase(PHASE.WAIT_ACTION);
+  }
+
+  /* ---- 给糖成功：糖进嘴 → 闭嘴 → 幽灵小猫微笑 + 万圣节文字 ---- */
+  async function doSuccess(candyType) {
+    const token = ++flowToken;
+
+    setPhase(PHASE.SUCCESS);
+    bubble.classList.remove('show');
+
+    // ① 闭嘴咬一口，同时咧开笑（糖已经飞进嘴里了）
+    const m = getGhostMouth();
+    setAngry(false);                       // 拿到糖，怒气立刻消失
+    ghost.classList.remove('mouth-open');
+    ghost.classList.add('happy', 'smiling');
+    burst(m.x, m.y, 12);
+    sfxYum();                     // 欢乐音效
+    jolt(.5);                     // 糖果堆跟着颤一下
+
+    await wait(TIME.happyBeat);
+    if (token !== flowToken) return;
+
+    // ② 开心地弹一下
+    setPhase(PHASE.REVEAL);
+    ghost.classList.add('got-candy');
+
+    state.treats++;
+    if (candyType) state.given.add(candyType);
+
+    // ③ 粒子
+    const c = getGhostCenter();
+    burst(c.x, c.y, 26);
+
+    // ④ 三种糖果都喂齐了 → 大结局
+    if (!state.won && state.given.size >= CANDIES.length) {
+      state.won = true;
+      await wait(520);
+      if (token !== flowToken) return;
+      await celebrate(token);
+      return;
+    }
+
+    // 常规一轮：左右两侧浮起万圣节糖果文字
+    halloweenWords(c.x, c.y);
+
+    await wait(TIME.reveal);
+    if (token !== flowToken) return;
+
+    // 讨糖动画一结束就接下一只（间隔压到 120ms，几乎无停顿）
+    await endRound(token, 120);
+  }
+
+  /* ---- 大结局：小猫微笑左右轻跳 + 两只抱糖蜘蛛 + 满屏元素 + 音乐 ---- */
+  async function celebrate(token) {
+    // 音乐
+    sfxFinale();
+
+    // ① 小猫笑眯眯地左右轻跳（不戴帽子，形象不变）
+    ghost.classList.remove('got-candy');
+    ghost.classList.add('happy', 'smiling', 'cheer');
+
+    // ② 右上角垂下来一只抱糖的蜘蛛
+    const dangleX = Math.min(window.innerWidth - 74, window.innerWidth * 0.86);
+    const dangleY = window.innerHeight * 0.26;
+    const dangle = addSpider(dangleX, dangleY, { thread: dangleY + 700 });
+    dangle.animate([
+      { transform: `translateY(${-dangleY - 60}px)` },
+      { transform: 'translateY(0)' }
+    ], { duration: 900, easing: 'cubic-bezier(.3,1.2,.6,1)', fill: 'forwards' });
+    dangle.animate([
+      { transform: 'translateY(0) rotate(-5deg)' },
+      { transform: 'translateY(30px) rotate(5deg)' }
+    ], {
+      duration: 1500,
+      delay: 900,
+      direction: 'alternate',
+      iterations: 3,
+      easing: 'ease-in-out'
+    });
+
+    // ③ 南瓜篮子边上冒出一只抱糖的蜘蛛
+    const tr = tray.getBoundingClientRect();
+    const sideX = Math.max(36, tr.left + 16);
+    const sideY = tr.top + tr.height * 0.44;
+    const sideSpider = addSpider(sideX, sideY, {});
+    sideSpider.animate([
+      { transform: 'translateY(56px) scale(.4)', opacity: 0 },
+      { transform: 'translateY(0) scale(1)', opacity: 1 }
+    ], { duration: 520, easing: 'cubic-bezier(.34,1.6,.64,1)', fill: 'forwards' });
+
+    // ④ 第一波：小猫和篮子周围都浮起万圣节元素
+    const c = getGhostCenter();
+    const bx = tr.left + tr.width / 2;
+    const by = tr.top + tr.height * 0.15;
+    halloweenWords(c.x, c.y - 20, 3600, 10);
+    halloweenWords(bx, by, 3600, 10);
+    burst(c.x, c.y, 30);
+    burst(bx, by, 22);
+
+    await wait(1300);
+    if (token !== flowToken) return;
+
+    // ⑤ 第二波
+    halloweenWords(c.x, c.y - 20, 3200, 8);
+    burst(c.x, c.y - 30, 22);
+
+    await wait(1300);
+    if (token !== flowToken) return;
+
+    // ⑥ 第三波
+    halloweenWords(bx, by + 20, 2700, 8);
+    burst(bx, by, 20);
+
+    await wait(2700);
+    if (token !== flowToken) return;
+
+    // 收尾：清掉临时元素，接下一轮（cheer 由 endRound 清掉）
+    clearFx();
+    await endRound(token, 500);
+  }
+
+  /* ---- 不给糖捣蛋：幽灵小猫翻脸，再随机演一段 ---- */
+  async function doTrick() {
+    const token = ++flowToken;
+
+    setPhase(PHASE.TRICK);
+    bubble.classList.remove('show');
+
+    // 翻脸（生气眼 + 头顶 💢），不脱床单
+    ghost.classList.remove('happy', 'smiling', 'mouth-open');
+    setAngry(true);
+    await wait(540);
+    if (token !== flowToken) return;
+
+    // 随机一段捣蛋动画（每段可以自己决定离场和间隔）
+    const res = (await pickTrick().run(token)) || {};
+    if (token !== flowToken) return;
+
+    if (!res.skipExit) {
+      // 幽灵小猫离场
+      ghostSlot.classList.add('leave');
+      await wait(TIME.exit);
+      if (token !== flowToken) return;
+    }
+
+    await endRound(token, res.gap);
+  }
+
+  /* ============ 10.1 捣蛋动画 ①：布袋打包 ============ */
+  async function trickBag(token) {
+    const tr = tray.getBoundingClientRect();
+    const gc = getGhostCenter();
+    const w = Math.max(150, tr.width * 1.26);
+    const h = w * 1.12;
+    const bagTop = tr.top - tr.height * 0.16;
+
+    sfxBag();   // 打包带走的整段音效（下落 → 兜糖 → 拎走）
+
+    const bag = document.createElement('div');
+    bag.className = 'fx-bag';
+    bag.innerHTML = BAG_SVG;
+    bag.style.width = w + 'px';
+    bag.style.height = h + 'px';
+    bag.style.left = (tr.left + tr.width / 2 - w / 2) + 'px';
+    bag.style.top = bagTop + 'px';
+    fxLayer.appendChild(bag);
+
+    // 从猫的位置松手 → 往下掉、边掉边撑开 → 罩住整个篮子
+    const drop = gc.y - bagTop;
+    bag.animate([
+      { transform: `translateY(${drop}px) scale(.26,.12)`, opacity: 0 },
+      { transform: `translateY(${drop * .3}px) scale(.62,.46)`, opacity: 1, offset: .45 },
+      { transform: 'translateY(0) scale(1,1)', opacity: 1 }
+    ], { duration: 600, easing: 'cubic-bezier(.35,1.1,.6,1)', fill: 'forwards' });
+
+    await wait(580);
+    if (token !== flowToken) return;
+
+    // 糖果被收走（袋子挡住了，直接清空）
+    clearPile();
+
+    await wait(280);
+    if (token !== flowToken) return;
+
+    // 收回：袋子带着糖缩回猫那边
+    bag.animate([
+      { transform: 'translateY(0) scale(1,1)', opacity: 1 },
+      { transform: `translateY(${drop * .5}px) scale(.3,.4)`, opacity: 0 }
+    ], { duration: 640, easing: 'cubic-bezier(.5,-.15,.8,.5)', fill: 'forwards' });
+
+    await wait(660);
+    bag.remove();
+  }
+
+  /* ============ 10.2 捣蛋动画 ②：渐隐 + 蝙蝠过境（清场版） ============ */
+  async function trickBats(token) {
+    ghost.classList.add('fade-away');
+    await wait(420);
+    if (token !== flowToken) return;
+
+    // ① 清空画面：篮子、垃圾桶都隐掉，只留蝙蝠
+    tray.classList.add('fx-vanish');
+    trash.classList.add('fx-vanish');
+    await wait(380);
+    if (token !== flowToken) return;
+
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const count = 26;          // 蝙蝠数量
+    let lastExit = 0;          // 最后一只飞出右边界的时间
+
+    sfxBats();                 // 蝙蝠群掠过的音效
+
+    for (let i = 0; i < count; i++) {
+      const b = document.createElement('div');
+      b.className = 'fx-bat';
+      const size = rand(26, 66);
+      b.style.width = size + 'px';
+      b.style.left = '-90px';
+      b.style.top = rand(H * 0.05, H * 0.86) + 'px';
+      b.innerHTML = BAT_SVG;
+      fxLayer.appendChild(b);
+
+      const dx = W + 180;
+      const dy = rand(-90, 90);
+      const dur = rand(850, 1300);
+      const delay = i * 45;
+      lastExit = Math.max(lastExit, delay + dur);
+
+      const anim = b.animate([
+        { transform: 'translate(0,0)' },
+        { transform: `translate(${dx * .5}px, ${dy}px)`, offset: .5 },
+        { transform: `translate(${dx}px, 0)` }
+      ], {
+        duration: dur,
+        delay,
+        easing: 'linear',
+        fill: 'forwards'
+      });
+      anim.onfinish = () => b.remove();
+    }
+
+    // ② 等最后一只从右侧飞出去 —— 那一瞬间恢复画面，同时接下一只幽灵
+    await wait(lastExit);
+    if (token !== flowToken) return;
+
+    tray.classList.remove('fx-vanish');
+    trash.classList.remove('fx-vanish');
+
+    return { skipExit: true, gap: 0 };
+  }
+
+  /* ============ 10.3 捣蛋动画 ③：蜘蛛偷糖送给猫 ============ */
+  async function trickSpider(token) {
+    const pr = pile.getBoundingClientRect();
+    const tr = trash.getBoundingClientRect();
+    const gc = getGhostCenter();
+
+    // ① 先在垃圾桶正上方垂下来
+    const sx = tr.left + tr.width / 2;
+    const sy = tr.top - 26;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'fx-spider-wrap';
+    wrap.style.left = sx + 'px';
+    wrap.style.top = sy + 'px';
+    wrap.innerHTML = `
+      <div class="fx-thread" style="height:${sy + 700}px"></div>
+      <div class="fx-spider">${SPIDER_SVG}</div>`;
+    fxLayer.appendChild(wrap);
+
+    sfxSpider();   // 蜘蛛登场的诡异音效
+
+    wrap.animate([
+      { transform: `translateY(${-sy - 60}px)` },
+      { transform: 'translateY(0)' }
+    ], { duration: 620, easing: 'cubic-bezier(.3,1.1,.6,1)', fill: 'forwards' });
+
+    await wait(640);
+    if (token !== flowToken) return;
+
+    // ② 荡到南瓜篮上方
+    const bx = pr.left + pr.width / 2;
+    const by = pr.top + pr.height * 0.55;
+    const gx = bx - sx;
+    const gy = by - sy;
+
+    wrap.animate([
+      { transform: 'translate(0,0)' },
+      { transform: `translate(${gx * .5}px, ${gy * .5 - 40}px)`, offset: .5 },
+      { transform: `translate(${gx}px, ${gy}px)` }
+    ], { duration: 720, easing: 'ease-in-out', fill: 'forwards' });
+
+    await wait(740);
+    if (token !== flowToken) return;
+
+    // ③ 抓起一颗离蜘蛛最近的糖
+    let target = null;
+    let best = Infinity;
+    for (const s of sweets) {
+      const d = Math.hypot(pr.left + s.x - bx, pr.top + s.y - by);
+      if (d < best) { best = d; target = s; }
+    }
+
+    let candyEl = null;
+    let cx0 = 0;
+    let cy0 = 0;
+    if (target) {
+      const idx = sweets.indexOf(target);
+      if (idx > -1) sweets.splice(idx, 1);
+      candyEl = target.el;
+      const r0 = candyEl.getBoundingClientRect();
+      candyEl.style.position = 'fixed';
+      candyEl.style.left = r0.left + 'px';
+      candyEl.style.top = r0.top + 'px';
+      candyEl.style.transform = 'none';
+      fxLayer.appendChild(candyEl);
+
+      cx0 = bx - (r0.left + r0.width / 2);
+      cy0 = by - (r0.top + r0.height / 2);
+
+      candyEl.animate([
+        { transform: 'translate(0,0) rotate(0deg)' },
+        { transform: `translate(${cx0}px, ${cy0}px) rotate(180deg)` }
+      ], { duration: 400, easing: 'cubic-bezier(.3,1.2,.6,1)', fill: 'forwards' });
+    }
+
+    await wait(430);
+    if (token !== flowToken) return;
+
+    // ④ 带着糖飘到猫面前（丝线收起的音效）
+    sfxSpiderLift();
+    const mx = gc.x - bx;
+    const my = gc.y - by - 34;
+    const opt = { duration: 900, easing: 'ease-in-out', fill: 'forwards' };
+
+    wrap.animate([
+      { transform: `translate(${gx}px, ${gy}px)` },
+      { transform: `translate(${gx + mx * .5}px, ${gy + my * .5 - 26}px)`, offset: .45 },
+      { transform: `translate(${gx + mx}px, ${gy + my}px)` }
+    ], opt);
+
+    if (candyEl) {
+      candyEl.animate([
+        { transform: `translate(${cx0}px, ${cy0}px) rotate(180deg)` },
+        { transform: `translate(${cx0 + mx * .5}px, ${cy0 + my * .5 - 26}px) rotate(90deg)`, offset: .45 },
+        { transform: `translate(${cx0 + mx}px, ${cy0 + my}px) rotate(0deg)` }
+      ], opt);
+    }
+
+    await wait(920);
+    if (token !== flowToken) return;
+
+    // ⑤ 幽灵小猫张嘴，接住糖（一拿到糖，怒气就散）
+    setAngry(false);
+    ghost.classList.add('mouth-open', 'got-candy');
+    sfxYum();   // 蜘蛛给的糖，同样是欢乐音效
+
+    await wait(180);
+    if (token !== flowToken) return;
+
+    if (candyEl) {
+      candyEl.animate([
+        { transform: `translate(${cx0 + mx}px, ${cy0 + my}px) scale(1)`, opacity: 1 },
+        { transform: `translate(${cx0 + mx}px, ${cy0 + my + 30}px) scale(.25)`, opacity: 0 }
+      ], { duration: 300, easing: 'ease-in', fill: 'forwards' })
+        .onfinish = () => candyEl.remove();
+    }
+
+    wrap.animate([
+      { transform: `translate(${gx + mx}px, ${gy + my}px)`, opacity: 1 },
+      { transform: `translate(${gx + mx}px, ${gy + my - 100}px)`, opacity: 0 }
+    ], { duration: 640, easing: 'ease-in', fill: 'forwards' })
+      .onfinish = () => wrap.remove();
+
+    await wait(320);
+    if (token !== flowToken) return;
+
+    // ⑥ 闭嘴微笑 + 万圣节糖果文字（文字和微笑同时结束）
+    setAngry(false);
+    ghost.classList.remove('mouth-open');
+    ghost.classList.add('happy', 'smiling');
+    burst(gc.x, gc.y, 24);
+    halloweenWords(gc.x, gc.y, 2100 + TIME.exit);
+
+    await wait(2100);
+    if (token !== flowToken) return;
+    ghost.classList.remove('got-candy');
+  }
+
+  /* ============ 10.4 捣蛋动画 ④：生气抖落全部糖果 ============ */
+  async function trickShake(token) {
+    setAngry(true);
+
+    // 震屏 + 篮子晃
+    stage.classList.remove('shake');
+    void stage.offsetWidth;
+    stage.classList.add('shake');
+    tray.classList.remove('shake');
+    void tray.offsetWidth;
+    tray.classList.add('shake');
+    sfxShake();    // 哗啦哗啦
+    jolt(1.4);
+
+    await wait(280);
+    if (token !== flowToken) return;
+
+    // 糖全部被甩出篮子：交给 fxLayer 做抛物线抛出
+    const vh = window.innerHeight;
+    for (const s of sweets.slice()) {
+      const el = s.el;
+      const r0 = el.getBoundingClientRect();
+      el.style.position = 'fixed';
+      el.style.left = r0.left + 'px';
+      el.style.top = r0.top + 'px';
+      el.style.transform = 'none';
+      fxLayer.appendChild(el);
+
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const dx = dir * rand(70, window.innerWidth * 0.42);
+      const dy = -rand(130, 280);
+      const spin = rand(-420, 420);
+
+      const anim = el.animate([
+        { transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
+        { transform: `translate(${dx * .55}px, ${dy}px) rotate(${spin * .35}deg)`, opacity: 1, offset: .32 },
+        { transform: `translate(${dx}px, ${vh * 0.95}px) rotate(${spin}deg)`, opacity: .95 }
+      ], {
+        duration: rand(900, 1400),
+        delay: rand(0, 240),
+        easing: 'cubic-bezier(.35,.05,.75,.6)',
+        fill: 'forwards'
+      });
+      anim.onfinish = () => el.remove();
+    }
+    sweets.length = 0;
+
+    await wait(1000);
+    if (token !== flowToken) return;
+    stage.classList.remove('shake');
+    await wait(420);
+  }
+
+  /* ---- 一轮结束 ---- */
+  // gap：本轮结束到下一只幽灵出现的间隔（不传就用默认值）
+  async function endRound(token, gap) {
+    setPhase(PHASE.ROUND_END);
+    ghostSlot.classList.remove('entered');
+    ghostSlot.style.visibility = 'hidden';
+    ghost.classList.remove('revealed', 'happy', 'angry', 'smiling', 'got-candy', 'fade-away', 'mouth-open', 'cheer');
+    angerIcon.classList.remove('show');
+    trash.classList.remove('target');
+    stage.classList.remove('shake');
+    tray.classList.remove('shake');
+    tray.classList.remove('fx-vanish');
+    trash.classList.remove('fx-vanish');
+
+    await wait(gap === undefined ? TIME.roundGap : gap);
+    if (token !== flowToken) return;
+    nextRound();
+  }
+
+  /* ====================== 11. 特效 ====================== */
+
+  const PARTICLE_COLORS = ['#ffd166', '#ff8f56', '#f7a95c', '#ff5c8a', '#8bd3ff', '#c792ff', '#7ad4a0'];
+
+  function burst(x, y, count) {
+    count = count || 24;
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('i');
+      p.className = 'particle' + (i % 3 === 0 ? ' spark' : '');
+      const size = rand(5, 13);
+      p.style.width = size + 'px';
+      p.style.height = size + 'px';
+      p.style.left = (x - size / 2) + 'px';
+      p.style.top = (y - size / 2) + 'px';
+      p.style.background = PARTICLE_COLORS[i % PARTICLE_COLORS.length];
+      fxLayer.appendChild(p);
+
+      const ang = rand(0, Math.PI * 2);
+      const dist = rand(70, 210);
+      const ax = Math.cos(ang) * dist;
+      const ay = Math.sin(ang) * dist - rand(20, 70);
+      const spin = rand(-360, 360);
+
+      const anim = p.animate(
+        [
+          { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 },
+          { transform: `translate(${ax}px,${ay}px) scale(.15) rotate(${spin}deg)`, opacity: 0 }
+        ],
+        { duration: rand(560, 980), easing: 'cubic-bezier(.18,.75,.3,1)', fill: 'forwards' }
+      );
+      anim.onfinish = () => p.remove();
+    }
+  }
+
+  /* ---- 造一只（可带丝线的）抱糖蜘蛛 ---- */
+  function addSpider(x, y, opts) {
+    opts = opts || {};
+    const wrap = document.createElement('div');
+    wrap.className = 'fx-spider-wrap';
+    wrap.style.left = x + 'px';
+    wrap.style.top = y + 'px';
+    wrap.innerHTML =
+      (opts.thread ? `<div class="fx-thread" style="height:${opts.thread}px"></div>` : '') +
+      `<div class="fx-spider">${SPIDER_SVG}</div>` +
+      `<div class="fx-candy">🍬</div>`;
+    fxLayer.appendChild(wrap);
+    return wrap;
+  }
+
+  /* ---- 清掉大结局遗留的临时元素 ---- */
+  function clearFx() {
+    fxLayer.querySelectorAll('.fx-spider-wrap, .fx-word, .fx-bag, .fx-bat').forEach((el) => el.remove());
+  }
+
+  /* ---- 万圣节糖果文字：绕着小猫浮起再散掉 ---- */
+  const HALLOWEEN_WORDS = [
+    { t: '🍬' },
+    { t: 'TRICK or TREAT', c: 'pop' },
+    { t: '🍭' },
+    { t: '糖果！', c: 'pink' },
+    { t: '🎃' },
+    { t: 'HAPPY HALLOWEEN', c: 'mint' },
+    { t: '🍫' },
+    { t: '👻' },
+    { t: '🍬' },
+    { t: 'TREAT!', c: 'pink' },
+    { t: '🍭' },
+    { t: '不给糖就捣蛋', c: 'pop' },
+    { t: '🎃' },
+    { t: '👻' },
+    { t: '🍫' },
+    { t: 'SWEET!', c: 'mint' }
+  ];
+
+  function halloweenWords(cx, cy, life, count) {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const wide = W >= 560;
+    // 窄屏去掉长句，免得被屏幕边缘裁掉
+    const pool = HALLOWEEN_WORDS.filter((w) => wide || w.t.length <= 6);
+    const TOTAL = count || 16;               // 浮现数量
+    const LIFE = life || TIME.reveal;        // 全部元素统一在这个时刻消失（= 微笑结束）
+    const FADE = 700;                        // 最后 0.7 秒一起淡出
+    const leftMax = cx - 128;                // 左侧可用空间的右边界（避开小猫）
+    const rightMin = cx + 128;               // 右侧可用空间的左边界
+    const topY = Math.max(46, cy - 220);
+    const botY = Math.min(H - 96, cy + 220);
+
+    for (let i = 0; i < TOTAL; i++) {
+      const w = pool[i % pool.length];
+      const el = document.createElement('div');
+      el.className = 'fx-word' + (w.c ? ' ' + w.c : '');
+      el.textContent = w.t;
+
+      const isEmoji = w.t.length <= 2;
+      el.style.fontSize = (isEmoji ? rand(22, 34) : rand(13, 19)) + 'px';
+
+      // 一半在左、一半在右，都落在小猫两侧的黑色区域里
+      const onLeft = i % 2 === 0;
+      let x;
+      if (onLeft) {
+        x = rand(24, Math.max(70, leftMax));
+      } else {
+        x = rand(Math.min(W - 70, rightMin), W - 24);
+      }
+      const y = rand(topY, botY);
+
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      fxLayer.appendChild(el);
+
+      // 往自己那一侧继续飘出去
+      const dx = (onLeft ? -1 : 1) * rand(26, 90);
+      const dy = -rand(50, 130);
+      const spin = rand(-16, 16);
+
+      // 出现得晚的就动画短一点，保证所有元素同一时刻结束
+      const delay = i * 40;
+      const dur = Math.max(900, LIFE - delay);
+      const fadeAt = Math.max(0.26, 1 - FADE / dur);
+
+      const anim = el.animate([
+        { transform: 'translate(-50%,-50%) scale(.35) rotate(0deg)', opacity: 0 },
+        {
+          transform: `translate(calc(-50% + ${dx * .22}px), calc(-50% + ${dy * .2}px)) scale(1.12) rotate(${spin * .3}deg)`,
+          opacity: 1,
+          offset: .16
+        },
+        {
+          transform: `translate(calc(-50% + ${dx * .8}px), calc(-50% + ${dy * .72}px)) scale(1) rotate(${spin * .8}deg)`,
+          opacity: 1,
+          offset: fadeAt
+        },
+        {
+          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.92) rotate(${spin}deg)`,
+          opacity: 0
+        }
+      ], {
+        duration: dur,
+        delay,
+        easing: 'cubic-bezier(.2,.8,.3,1)',
+        fill: 'forwards'
+      });
+      anim.onfinish = () => el.remove();
+    }
+  }
+
+  /* 大结局演完之后直接接下一轮，不再弹任何提示框（想重开就刷新页面） */
+
+  /* ====================== 13. 音效（Web Audio 实时合成，不加载任何音频文件） ====================== */
+  // 原理：用振荡器（tone）和噪声（hiss）现场合成波形，
+  // 这样单文件、双击即玩，也不用担心 file:// 下音频加载被拦。
+  let actx = null;
+  let master = null;
+  let noiseBuf = null;
+  let muted = false;
+
+  function audio() {
+    if (muted) return null;
+    if (!actx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { actx = new AC(); } catch (e) { return null; }
+    }
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+
+  function bus() {
+    const a = audio();
+    if (!a) return null;
+    if (!master) {
+      master = a.createGain();
+      master.gain.value = 0.85;
+      master.connect(a.destination);
+    }
+    return master;
+  }
+
+  // 单个音：可滑音、可延迟
+  function tone(o) {
+    const a = audio();
+    const out = bus();
+    if (!a || !out) return;
+    const t0 = a.currentTime + (o.delay || 0);
+    const dur = o.dur || 0.2;
+    const osc = a.createOscillator();
+    const g = a.createGain();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.freq, t0);
+    if (o.slideTo) osc.frequency.exponentialRampToValueAtTime(o.slideTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(o.gain || 0.18, t0 + (o.attack || 0.006));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g);
+    g.connect(o.out || out);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.03);
+  }
+
+  function noiseBuffer(a) {
+    if (!noiseBuf) {
+      const len = Math.floor(a.sampleRate * 2);
+      noiseBuf = a.createBuffer(1, len, a.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return noiseBuf;
+  }
+
+  // 一段噪声：可扫频、可设定滤波类型
+  function hiss(o) {
+    const a = audio();
+    const out = bus();
+    if (!a || !out) return;
+    const t0 = a.currentTime + (o.delay || 0);
+    const dur = o.dur || 0.5;
+
+    const src = a.createBufferSource();
+    src.buffer = noiseBuffer(a);
+    src.loop = true;
+
+    const f = a.createBiquadFilter();
+    f.type = o.filterType || 'bandpass';
+    f.Q.value = o.q === undefined ? 1.2 : o.q;
+    f.frequency.setValueAtTime(o.freq || 800, t0);
+    if (o.sweepTo) f.frequency.exponentialRampToValueAtTime(o.sweepTo, t0 + dur);
+
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(o.gain || 0.1, t0 + (o.attack || 0.05));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+    src.connect(f);
+    f.connect(g);
+    g.connect(out);
+    src.start(t0);
+    src.stop(t0 + dur + 0.05);
+  }
+
+  /* ① 吃到糖：咬一口 + 欢快琶音 + 一点闪光 */
+  function sfxYum() {
+    tone({ freq: 320, slideTo: 150, dur: 0.1, type: 'sine', gain: 0.22 });
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      tone({ freq: f, dur: 0.26, type: 'triangle', gain: 0.15, delay: 0.05 + i * 0.085 });
+      tone({ freq: f * 2, dur: 0.18, type: 'sine', gain: 0.045, delay: 0.05 + i * 0.085 });
+    });
+    hiss({ freq: 4000, sweepTo: 7000, dur: 0.5, gain: 0.04, q: 0.8, delay: 0.12 });
+  }
+
+  /* ② 蝙蝠过境：群翼掠过 + 扑翅颗粒 + 尖叫 */
+  function sfxBats() {
+    // ① 一整片翅膀掠过的宽带噪声（attack 短，一上来就有量）
+    hiss({ freq: 1200, sweepTo: 420, dur: 1.5, gain: 0.3, q: 0.6, attack: 0.05 });
+    // ② 低频厚度：扑翼的"呼呼"压低频
+    hiss({ freq: 220, dur: 1.4, gain: 0.26, q: 0.7, filterType: 'lowpass', attack: 0.1 });
+    // ③ 颗粒：一下一下的拍翅感
+    for (let i = 0; i < 17; i++) {
+      hiss({
+        freq: rand(400, 900),
+        dur: 0.06,
+        gain: rand(0.12, 0.2),
+        q: 1.2,
+        delay: 0.05 + i * 0.08
+      });
+    }
+    // ④ 几只蝙蝠的尖叫
+    for (let i = 0; i < 6; i++) {
+      tone({
+        freq: rand(1900, 3200),
+        slideTo: rand(1200, 2200),
+        dur: 0.08,
+        type: 'sine',
+        gain: 0.09,
+        delay: 0.18 + i * 0.24 + rand(0, 0.1)
+      });
+    }
+  }
+
+  /* ③ 抖落糖果：罐子里哗啦哗啦 */
+  function sfxShake() {
+    // 底层闷响：先给一下"晃"的重量感
+    tone({ freq: 130, slideTo: 55, dur: 0.22, type: 'sine', gain: 0.4 });
+    tone({ freq: 92, slideTo: 50, dur: 0.5, type: 'triangle', gain: 0.2, delay: 0.02 });
+
+    // 糖粒在篮子里互撞：颗数更多、滤波更宽（Q 小 = 能量更足）
+    for (let i = 0; i < 20; i++) {
+      hiss({
+        freq: rand(700, 3200),
+        dur: rand(0.05, 0.1),
+        gain: rand(0.16, 0.28) * (1 - i / 26),
+        q: 1.1,
+        delay: i * 0.045 + rand(0, 0.02)
+      });
+    }
+  }
+
+  /* ④ 蜘蛛登场：下行诡异滑音 + 细碎脚步 */
+  function sfxSpider() {
+    tone({ freq: 900, slideTo: 240, dur: 0.95, type: 'sine', gain: 0.1 });
+    tone({ freq: 1330, slideTo: 360, dur: 0.95, type: 'triangle', gain: 0.04, delay: 0.02 });
+    hiss({ freq: 5000, sweepTo: 2500, dur: 0.9, gain: 0.028, q: 2, delay: 0.05 });
+    for (let i = 0; i < 4; i++) {
+      hiss({ freq: rand(1500, 2400), dur: 0.045, gain: 0.05, q: 6, delay: 0.14 + i * 0.09 });
+    }
+  }
+
+  /* ⑤ 布袋打包带走：下落 → 兜住糖果 → 拎走，三段连成一个音 */
+  function sfxBag() {
+    // ① 袋子从猫那边落下、边掉边撑开
+    hiss({ freq: 1800, sweepTo: 260, dur: 0.6, gain: 0.1, q: 1.1, attack: 0.06 });
+    tone({ freq: 240, slideTo: 90, dur: 0.34, type: 'sine', gain: 0.1, delay: 0.3 });
+
+    // ② 罩住篮子那一下：闷响
+    hiss({ freq: 220, dur: 0.2, gain: 0.13, q: 1.4, filterType: 'lowpass', attack: 0.01, delay: 0.52 });
+
+    // ③ 糖果被收进袋子：一口吞 + 袋里哗啦
+    tone({ freq: 520, slideTo: 150, dur: 0.26, type: 'triangle', gain: 0.12, delay: 0.6 });
+    for (let i = 0; i < 9; i++) {
+      hiss({
+        freq: rand(1200, 2800),
+        dur: rand(0.04, 0.07),
+        gain: rand(0.035, 0.06),
+        q: 4,
+        delay: 0.63 + i * 0.045
+      });
+    }
+
+    // ④ 拎起来带走：上行的呼呼声 + 轻微的“拎”声
+    hiss({ freq: 300, sweepTo: 2300, dur: 0.65, gain: 0.085, q: 1, attack: 0.12, delay: 0.85 });
+    tone({ freq: 170, slideTo: 540, dur: 0.55, type: 'sine', gain: 0.06, delay: 0.92 });
+  }
+
+  /* ⑤ 蜘蛛拎着糖升回去：丝线收紧的上行"咻" */
+  function sfxSpiderLift() {
+    hiss({ freq: 480, sweepTo: 2800, dur: 0.8, gain: 0.13, q: 1.1, attack: 0.07 });
+    tone({ freq: 300, slideTo: 940, dur: 0.55, type: 'sine', gain: 0.09 });
+    tone({ freq: 1250, dur: 0.06, type: 'triangle', gain: 0.06, delay: 0.06 });
+    tone({ freq: 1650, dur: 0.05, type: 'triangle', gain: 0.05, delay: 0.16 });
+  }
+
+  /* ⑥ 生气：一声低吼 + 气声（把糖丢进垃圾桶时） */
+  function sfxAngry() {
+    tone({ freq: 340, slideTo: 140, dur: 0.18, type: 'sawtooth', gain: 0.15 });
+    tone({ freq: 170, slideTo: 85, dur: 0.26, type: 'square', gain: 0.08, delay: 0.02 });
+    hiss({ freq: 950, sweepTo: 360, dur: 0.24, gain: 0.09, q: 1.3, attack: 0.012, delay: 0.02 });
+    tone({ freq: 130, dur: 0.1, type: 'sine', gain: 0.12, delay: 0.2 });
+  }
+
+  /* ⑦ 大结局：欢快的小段旋律（约 3.2 秒） */
+  function sfxFinale() {
+    // 主旋律：C 大调上行 + 收在高音
+    const mel = [
+      [523.25, 0.00, 0.16], [659.25, 0.16, 0.16], [783.99, 0.32, 0.16],
+      [1046.5, 0.48, 0.34],
+      [987.77, 0.88, 0.16], [880.0, 1.04, 0.16], [783.99, 1.20, 0.28],
+      [1046.5, 1.54, 0.26], [1174.66, 1.80, 0.22], [1318.51, 2.02, 0.62]
+    ];
+    mel.forEach(([f, d, dur]) => {
+      tone({ freq: f, dur, type: 'triangle', gain: 0.16, delay: d });
+      tone({ freq: f * 2, dur: dur * 0.7, type: 'sine', gain: 0.05, delay: d });
+    });
+
+    // 低音走位：C - G - A - F
+    [[130.81, 0], [196.0, 0.48], [220.0, 0.96], [174.61, 1.44]].forEach(([f, d]) => {
+      tone({ freq: f, dur: 0.42, type: 'sine', gain: 0.14, delay: d });
+    });
+
+    // 收尾和弦 + 一片闪光
+    [523.25, 659.25, 783.99, 1046.5].forEach((f) => {
+      tone({ freq: f, dur: 1.15, type: 'triangle', gain: 0.085, delay: 2.02 });
+    });
+    hiss({ freq: 2800, sweepTo: 8000, dur: 1.7, gain: 0.05, q: 0.7, delay: 2.0 });
+  }
+
+  /* ====================== 13.5 封面背景音乐（8 小节循环） ====================== */
+  // 7.2 秒一个循环，分成 A - A' - B - A'' 四个乐句，比原来长一倍，不容易听出重复
+  const TITLE_TUNE = {
+    loop: 7.2,
+    mel: [
+      // A：C E G E | C D E—
+      [523.25, 0.00, 0.16], [659.25, 0.22, 0.16], [783.99, 0.44, 0.16], [659.25, 0.66, 0.16],
+      [523.25, 0.88, 0.16], [587.33, 1.10, 0.16], [659.25, 1.32, 0.34],
+      // A'：G A C A | G E C—
+      [783.99, 1.76, 0.16], [880.00, 1.98, 0.16], [1046.5, 2.20, 0.16], [880.00, 2.42, 0.16],
+      [783.99, 2.64, 0.16], [659.25, 2.86, 0.16], [523.25, 3.08, 0.40],
+      // B：F A C A | G B D—
+      [698.46, 3.52, 0.16], [880.00, 3.74, 0.16], [1046.5, 3.96, 0.16], [880.00, 4.18, 0.16],
+      [783.99, 4.40, 0.16], [987.77, 4.62, 0.16], [1174.66, 4.84, 0.34],
+      // A''：自上而下收回主音
+      [1046.5, 5.28, 0.16], [880.00, 5.50, 0.16], [783.99, 5.72, 0.16], [659.25, 5.94, 0.16],
+      [587.33, 6.16, 0.16], [523.25, 6.38, 0.16], [523.25, 6.60, 0.52]
+    ],
+    bass: [
+      [130.81, 0.00], [130.81, 0.44], [196.00, 0.88], [196.00, 1.32],
+      [174.61, 1.76], [174.61, 2.20], [196.00, 2.64], [130.81, 3.08],
+      [174.61, 3.52], [174.61, 3.96], [196.00, 4.40], [196.00, 4.84],
+      [174.61, 5.28], [174.61, 5.72], [196.00, 6.16], [130.81, 6.60]
+    ]
+  };
+
+  let titleMusicTimer = null;
+  let musicGain = null;
+
+  // 封面音乐走一条独立的总线，方便一键淡出（不然已排好的音符还会继续响）
+  function musicBus() {
+    const a = audio();
+    if (!a) return null;
+    if (!musicGain) {
+      musicGain = a.createGain();
+      musicGain.gain.value = 0.9;
+      const m = bus();
+      if (m) musicGain.connect(m);
+    }
+    return musicGain;
+  }
+
+  function playTitleBar() {
+    const a = audio();
+    const out = musicBus();
+    if (!a || !out || a.state !== 'running') return;
+    TITLE_TUNE.mel.forEach(([f, d, dur]) => {
+      tone({ freq: f, dur, type: 'triangle', gain: 0.1, delay: d, out });
+      tone({ freq: f * 2, dur: dur * 0.6, type: 'sine', gain: 0.03, delay: d, out });
+    });
+    TITLE_TUNE.bass.forEach(([f, d]) => {
+      tone({ freq: f, dur: 0.3, type: 'sine', gain: 0.09, delay: d, out });
+    });
+  }
+
+  function startTitleMusic() {
+    if (titleMusicTimer || muted) return;
+    const a = audio();
+    const out = musicBus();
+    if (!a || !out) return;
+
+    const begin = () => {
+      if (titleMusicTimer || muted) return;
+      if (a.state !== 'running') return;      // 还没真正解锁，等下一次手势
+      musicGain.gain.cancelScheduledValues(a.currentTime);
+      musicGain.gain.setValueAtTime(0.9, a.currentTime);
+      playTitleBar();
+      titleMusicTimer = setInterval(playTitleBar, TITLE_TUNE.loop * 1000);
+    };
+
+    // resume() 是异步的：手势里调用后要等 Promise 完成，state 才会变成 running
+    if (a.state === 'running') begin();
+    else a.resume().then(begin).catch(() => {});
+  }
+
+  function stopTitleMusic() {
+    if (titleMusicTimer) {
+      clearInterval(titleMusicTimer);
+      titleMusicTimer = null;
+    }
+    const a = actx;
+    if (musicGain && a) {
+      const t = a.currentTime;
+      try {
+        musicGain.gain.cancelScheduledValues(t);
+        musicGain.gain.setValueAtTime(musicGain.gain.value, t);
+        musicGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      } catch (e) { /* 忽略 */ }
+    }
+  }
+
+  /* ====================== 14. 启动 ====================== */
+  function boot() {
+    refreshBounds();
+    requestAnimationFrame(loop);
+
+    pile.addEventListener('pointerdown', onPileDown);
+
+    // 封面音乐：浏览器不允许无手势自动播放，等第一次点击再启动
+    startTitleMusic();
+
+    titleScreen.addEventListener('pointerdown', async () => {
+      if (state.phase !== PHASE.TITLE) return;
+
+      // 第一次点：只负责解锁音频 + 开始放封面音乐，不急着进游戏
+      if (!state.audioReady) {
+        state.audioReady = true;
+        audio();
+        startTitleMusic();
+        tapHint.textContent = '点击开始游戏';
+        tapHint.classList.add('ready');
+        return;
+      }
+
+      // 第二次点：音乐停，游戏开始
+      setPhase(PHASE.START);
+      stopTitleMusic();
+      titleScreen.classList.add('fade-out');
+      await wait(660);
+      titleScreen.classList.add('hidden');
+      nextRound();
+    });
+
+    // 音效开关
+    soundBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      muted = !muted;
+      soundBtn.textContent = muted ? '🔇' : '🔊';
+      if (master) master.gain.value = muted ? 0 : 0.85;
+      if (!muted) {
+        audio();
+        tone({ freq: 880, dur: 0.09, type: 'sine', gain: 0.12 });   // 开启时给个反馈
+      }
+    });
+
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('dragstart', (e) => e.preventDefault());
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
